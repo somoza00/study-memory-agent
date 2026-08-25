@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+frontend/dist/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Dados locais (volumes bind)
+data/
+pgdata/
+redisdata/
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
