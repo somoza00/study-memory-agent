@@ -49,5 +49,10 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 
 [tool.mypy]
 strict = true
-python_version = "3.11"
+# numpy (dep. transitiva do qdrant-client, via NDArray em query_points) usa
+# PEP 695 (`type X = ...`) nos .pyi a partir da 2.1, sintaxe que mypy só
+# aceita com python_version >= 3.12 — mesmo em stub, mesmo com
+# follow_imports=skip. O runtime do projeto continua em 3.11 (ver Dockerfile
+# e requires-python); isto só afeta as premissas de sintaxe do mypy.
+python_version = "3.12"
 files = ["app"]
