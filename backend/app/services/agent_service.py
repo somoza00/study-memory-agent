@@ -6,6 +6,13 @@ memórias relevantes à mensagem são recuperadas antes da chamada e injetadas
 no system prompt (instruções); o modelo também pode chamar `recall_memory`
 durante a conversa. A instrumentação usa o OTEL nativo do Pydantic AI
 (`agent.instrument`), sem LangfuseCallbackHandler.
+
+O agente (e o cliente OpenAI por trás dele) é construído sob demanda, no
+primeiro `chat()`, e não no `__init__`: assim a app não quebra na
+inicialização nem em endpoints que não usam o agente quando
+`OPENAI_API_KEY` não está configurada. Se a construção ou a chamada ao
+modelo falhar por causa da OpenAI, `chat()` levanta `AgentUnavailableError`
+em vez de propagar a exceção crua da SDK.
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from openai import OpenAIError
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -50,13 +58,23 @@ class ChatResult:
     memories_used: int
 
 
+class AgentUnavailableError(RuntimeError):
+    """O agente não pôde ser construído ou chamado (ex.: sem OPENAI_API_KEY)."""
+
+
 class AgentService:
     """Orquestra o agente Pydantic AI sobre o `MemoryService`."""
 
     def __init__(self, memory_service: MemoryService, config: Settings = settings) -> None:
         self._memory = memory_service
         self._config = config
-        self._agent = self._build_agent()
+        self._agent: Agent[AgentDeps, str] | None = None
+
+    def _get_agent(self) -> Agent[AgentDeps, str]:
+        """Retorna o agente, construindo-o sob demanda (lazy)."""
+        if self._agent is None:
+            self._agent = self._build_agent()
+        return self._agent
 
     def _build_agent(self) -> Agent[AgentDeps, str]:
         """Constrói o agente, registra tools/instruções e ativa o OTEL nativo."""
@@ -108,10 +126,21 @@ class AgentService:
         return agent
 
     async def chat(self, message: str, session_id: str) -> ChatResult:
-        """Recupera memórias relevantes e gera a resposta do agente."""
-        memories = await self._memory.recall(message, RECALL_LIMIT, RECALL_MIN_SCORE)
-        deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
-        result = await self._agent.run(message, deps=deps)
+        """Recupera memórias relevantes e gera a resposta do agente.
+
+        Levanta `AgentUnavailableError` se qualquer etapa que depende da
+        OpenAI falhar (recall usa embedding; e a construção/chamada do
+        agente) — ex.: sem API key configurada.
+        """
+        try:
+            memories = await self._memory.recall(message, RECALL_LIMIT, RECALL_MIN_SCORE)
+            deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
+            agent = self._get_agent()
+            result = await agent.run(message, deps=deps)
+        except OpenAIError as exc:
+            raise AgentUnavailableError(
+                "Assistente indisponível: configure OPENAI_API_KEY."
+            ) from exc
         return ChatResult(response=str(result.output), memories_used=len(memories))
 
 

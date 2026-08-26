@@ -12,9 +12,10 @@ from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_agent_service, get_memory_service
+from app.core.config import Settings
 from app.main import app
 from app.models.memory import MemoryMetadata, StoredMemory
-from app.services.agent_service import ChatResult
+from app.services.agent_service import AgentService, ChatResult
 
 
 def _agent_mock() -> AsyncMock:
@@ -46,6 +47,22 @@ def test_chat_returns_response_and_memories_used() -> None:
         assert body["memories_used"] == 2
         assert body["session_id"] == "s1"
         agent.chat.assert_awaited_once_with("oi", "s1")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_returns_503_when_openai_key_missing() -> None:
+    """Regressão: AgentService real (não mockado), sem API key, deve virar
+    503 tratado — nunca um 500 cru da SDK da OpenAI."""
+    memory = AsyncMock()
+    memory.recall.return_value = []
+    agent = AgentService(memory_service=memory, config=Settings(openai_api_key=""))
+    app.dependency_overrides[get_agent_service] = lambda: agent
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 503
+        assert "OPENAI_API_KEY" in resp.json()["detail"]
     finally:
         app.dependency_overrides.clear()
 
