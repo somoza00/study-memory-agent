@@ -1,5 +1,29 @@
-"""Router de chat com o agente Pydantic AI.
+"""Router de chat com o agente Pydantic AI imbuído de memória.
 
-Por implementar:
-- POST /api/chat → recebe mensagem, injeta memórias recuperadas, retorna resposta.
+Expõe `POST /api/chat`: recebe `{message, session_id}`, delega ao
+`AgentService` e responde com o texto gerado e o número de memórias usadas.
 """
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends
+
+from app.api.deps import get_agent_service
+from app.models.chat import ChatRequest, ChatResponse
+from app.services.agent_service import AgentService
+
+router = APIRouter(prefix="/api", tags=["chat"])
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    request: ChatRequest,
+    agent: AgentService = Depends(get_agent_service),
+) -> ChatResponse:
+    """Processa uma mensagem com recuperação automática de memórias."""
+    result = await agent.chat(request.message, request.session_id)
+    return ChatResponse(
+        response=result.response,
+        memories_used=result.memories_used,
+        session_id=request.session_id,
+    )

@@ -12,6 +12,7 @@ RUN apt-get update \
 
 # Camada de dependências cacheada (pyproject + pacote presente p/ `pip install .`)
 COPY pyproject.toml ./
+COPY README.md ./
 COPY app ./app
 RUN pip install --no-cache-dir .
 
