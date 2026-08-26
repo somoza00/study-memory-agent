@@ -10,7 +10,18 @@ esta camada junto com os embeddings.
 from __future__ import annotations
 
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, PointStruct, ScoredPoint, VectorParams
+from qdrant_client.conversions import common_types as types
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointIdsList,
+    PointStruct,
+    Record,
+    ScoredPoint,
+    VectorParams,
+)
 
 from app.core.config import Settings, settings
 
@@ -64,4 +75,46 @@ class VectorStore:
     async def delete(self, id: str) -> None:
         """Remove um ponto pelo id."""
         await self._ensure_collection()
-        await self._client.delete(collection_name=self._collection, points_selector=[id])
+        await self._client.delete(
+            collection_name=self._collection,
+            points_selector=PointIdsList(points=[id]),
+        )
+
+    async def list_topics(self) -> list[str]:
+        """Retorna os `topic` distintos presentes na collection."""
+        topics: set[str] = set()
+        offset: types.PointId | None = None
+        while True:
+            records, next_page = await self._client.scroll(
+                collection_name=self._collection,
+                scroll_filter=None,
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for record in records:
+                topic = (record.payload or {}).get("topic")
+                if topic:
+                    topics.add(str(topic))
+            if next_page is None or not records:
+                break
+            offset = next_page
+        return sorted(topics)
+
+    async def list(self, limit: int, topic: str | None = None) -> list[Record]:
+        """Lista memórias, opcionalmente filtradas por `topic`, limitadas a `limit`."""
+        await self._ensure_collection()
+        scroll_filter: Filter | None = None
+        if topic is not None:
+            scroll_filter = Filter(
+                must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+            )
+        records, _next_page = await self._client.scroll(
+            collection_name=self._collection,
+            scroll_filter=scroll_filter,
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return records

@@ -47,6 +47,10 @@ exclude = [".venv", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Padrão legítimo do FastAPI: Depends()/Query() como default de endpoint.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
 [tool.mypy]
 strict = true
 # numpy (dep. transitiva do qdrant-client, via NDArray em query_points) usa

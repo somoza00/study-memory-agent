@@ -27,3 +27,11 @@ class MemoryResult(BaseModel):
     text: str
     score: float
     metadata: MemoryMetadata
+
+
+class StoredMemory(BaseModel):
+    """Uma memória persistida, listada sem score (não é resultado de recall)."""
+
+    id: str
+    text: str
+    metadata: MemoryMetadata

@@ -12,9 +12,9 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from qdrant_client.models import ScoredPoint
+from qdrant_client.models import Record, ScoredPoint
 
-from app.models.memory import MemoryMetadata, MemoryResult
+from app.models.memory import MemoryMetadata, MemoryResult, StoredMemory
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store import VectorStore
 
@@ -56,6 +56,39 @@ class MemoryService:
             return []
         return [_to_memory_result(point) for point in points]
 
+    async def list_topics(self) -> list[str]:
+        """Lista os tópicos distintos das memórias existentes.
+
+        Retorna lista vazia se o Qdrant estiver indisponível.
+        """
+        try:
+            return await self._store.list_topics()
+        except Exception:
+            logger.warning("Qdrant indisponível: list_topics retornando vazio")
+            return []
+
+    async def list(self, topic: str | None = None, limit: int = 20) -> list[StoredMemory]:
+        """Lista memórias persistidas, opcionalmente filtradas por `topic`.
+
+        Retorna lista vazia se o Qdrant estiver indisponível.
+        """
+        try:
+            records = await self._store.list(limit, topic)
+        except Exception:
+            logger.warning("Qdrant indisponível: list retornando vazio")
+            return []
+        return [_to_stored_memory(record) for record in records]
+
+    async def delete(self, memory_id: str) -> None:
+        """Remove uma memória pelo id.
+
+        Não levanta exceção se o Qdrant estiver indisponível.
+        """
+        try:
+            await self._store.delete(memory_id)
+        except Exception:
+            logger.warning("Qdrant indisponível: memória %s não foi removida", memory_id)
+
 
 def _to_memory_result(point: ScoredPoint) -> MemoryResult:
     """Converte um `ScoredPoint` do Qdrant em `MemoryResult`."""
@@ -63,3 +96,11 @@ def _to_memory_result(point: ScoredPoint) -> MemoryResult:
     text = str(payload.get("text", ""))
     metadata = MemoryMetadata.model_validate(payload)
     return MemoryResult(id=str(point.id), text=text, score=point.score, metadata=metadata)
+
+
+def _to_stored_memory(record: Record) -> StoredMemory:
+    """Converte um `Record` do Qdrant (scroll) em `StoredMemory`."""
+    payload = record.payload or {}
+    text = str(payload.get("text", ""))
+    metadata = MemoryMetadata.model_validate(payload)
+    return StoredMemory(id=str(record.id), text=text, metadata=metadata)
