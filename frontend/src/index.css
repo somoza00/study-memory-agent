@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text-primary font-sans antialiased;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+/* Estilos do conteúdo markdown renderizado nas mensagens do agente. */
+.markdown > * + * {
+  margin-top: 0.5rem;
+}
+.markdown ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.markdown ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.markdown code {
+  @apply rounded bg-white/10 px-1 py-0.5 text-[13px];
+}
+.markdown pre {
+  @apply overflow-x-auto rounded-lg bg-black/40 p-3;
+}
+.markdown pre code {
+  @apply bg-transparent p-0;
+}
+.markdown a {
+  @apply text-accent underline;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  @apply font-semibold;
+}
+.markdown strong {
+  @apply font-semibold;
+}
+.markdown blockquote {
+  @apply border-l-2 border-text-secondary/50 pl-3 text-text-secondary;
+}
+.markdown table {
+  @apply w-full border-collapse text-sm;
+}
+.markdown th,
+.markdown td {
+  @apply border border-border px-2 py-1 text-left;
+}
+
+/* Barra de rolagem discreta. */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  @apply rounded bg-border;
+}
