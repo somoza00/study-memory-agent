@@ -10,6 +10,7 @@ durante a conversa. A instrumentação usa o OTEL nativo do Pydantic AI
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import date
 
@@ -48,6 +49,18 @@ class ChatResult:
 
     response: str
     memories_used: int
+
+
+@dataclass
+class StreamEvent:
+    """Evento emitido durante o streaming do agente.
+
+    `type` é `"token"` (com `content`) ou `"done"` (com `memories_used`).
+    """
+
+    type: str
+    content: str = ""
+    memories_used: int = 0
 
 
 class AgentService:
@@ -113,6 +126,20 @@ class AgentService:
         deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
         result = await self._agent.run(message, deps=deps)
         return ChatResult(response=str(result.output), memories_used=len(memories))
+
+    async def stream_chat(self, message: str, session_id: str) -> AsyncIterator[StreamEvent]:
+        """Gera tokens de resposta em streaming (SSE) via `agent.run_stream`.
+
+        Recupera memórias relevantes antes de iniciar o stream (mesmo
+        comportamento de `chat`) e emite `StreamEvent` de tipo `token` a cada
+        delta de texto, terminando com `done` + `memories_used`.
+        """
+        memories = await self._memory.recall(message, RECALL_LIMIT, RECALL_MIN_SCORE)
+        deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
+        async with self._agent.run_stream(message, deps=deps) as agent_run:
+            async for delta in agent_run.stream_text(delta=True):
+                yield StreamEvent(type="token", content=delta)
+        yield StreamEvent(type="done", memories_used=len(memories))
 
 
 def _format_context(memories: list[MemoryResult]) -> str:

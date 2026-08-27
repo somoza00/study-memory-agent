@@ -14,7 +14,17 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_agent_service, get_memory_service
 from app.main import app
 from app.models.memory import MemoryMetadata, StoredMemory
-from app.services.agent_service import ChatResult
+from app.services.agent_service import ChatResult, StreamEvent
+
+
+class _FakeStreamAgent:
+    """Substituto do AgentService que emite eventos SSE sem tocar o LLM."""
+
+    async def stream_chat(self, message: str, session_id: str):
+        del message, session_id
+        yield StreamEvent(type="token", content="Olá")
+        yield StreamEvent(type="token", content=" mundo")
+        yield StreamEvent(type="done", memories_used=2)
 
 
 def _agent_mock() -> AsyncMock:
@@ -73,6 +83,21 @@ def test_topics_returns_distinct_list() -> None:
         resp = client.get("/api/topics")
         assert resp.status_code == 200, resp.text
         assert resp.json() == ["fastapi", "react"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_stream_returns_sse_events() -> None:
+    app.dependency_overrides[get_agent_service] = lambda: _FakeStreamAgent()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat/stream", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        assert '"type": "token"' in resp.text
+        assert '"content": "Olá' in resp.text
+        assert '"type": "done"' in resp.text
+        assert '"memories_used": 2' in resp.text
     finally:
         app.dependency_overrides.clear()
 
