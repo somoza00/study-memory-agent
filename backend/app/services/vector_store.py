@@ -118,3 +118,11 @@ class VectorStore:
             with_vectors=False,
         )
         return records
+
+    async def ping(self) -> bool:
+        """Retorna `True` se o Qdrant responder; `False` em qualquer erro (não levanta)."""
+        try:
+            await self._client.get_collections()
+            return True
+        except Exception:
+            return False
