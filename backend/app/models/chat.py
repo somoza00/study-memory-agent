@@ -9,7 +9,7 @@ class ChatRequest(BaseModel):
     """Payload de entrada de `POST /api/chat`."""
 
     message: str = Field(..., min_length=1, description="Mensagem do usuário.")
-    session_id: str = Field(..., description="Identificador da sessão de conversa.")
+    session_id: str = Field(..., min_length=1, description="Identificador da sessão de conversa.")
 
 
 class ChatResponse(BaseModel):
