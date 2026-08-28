@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_agent_service, get_memory_service
+from app.api.deps import get_agent_service, get_memory_service, get_vector_store
 from app.main import app
 from app.models.memory import MemoryMetadata, StoredMemory
 from app.services.agent_service import ChatResult, StreamEvent
@@ -110,5 +110,20 @@ def test_delete_memory_returns_204() -> None:
         resp = client.delete("/api/memories/abc")
         assert resp.status_code == 204
         memory.delete.assert_awaited_once_with("abc")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_deep_health_reports_qdrant_status() -> None:
+    store = AsyncMock()
+    store.ping.return_value = True
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/health")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["dependencies"]["qdrant"] == "up"
     finally:
         app.dependency_overrides.clear()
