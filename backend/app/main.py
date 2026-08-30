@@ -10,11 +10,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.api.routers.chat import router as chat_router
 from app.api.routers.health import router as health_router
 from app.api.routers.memories import router as memories_router
+from app.core.security import require_api_key
 from app.services.observability import configure_langfuse_otel
 
 
@@ -27,9 +28,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Study Memory Agent", version="0.1.0", lifespan=lifespan)
 
+# Auth (X-API-Key) aplicada às rotas /api de chat e memórias; /health e
+# /api/health ficam abertos para o healthcheck de orquestração.
+app.include_router(chat_router, dependencies=[Depends(require_api_key)])
+app.include_router(memories_router, dependencies=[Depends(require_api_key)])
 app.include_router(health_router)
-app.include_router(chat_router)
-app.include_router(memories_router)
 
 
 @app.get("/", include_in_schema=False)
