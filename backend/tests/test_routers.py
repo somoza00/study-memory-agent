@@ -60,6 +60,22 @@ def test_chat_returns_response_and_memories_used() -> None:
         app.dependency_overrides.clear()
 
 
+def test_chat_returns_502_when_openai_fails() -> None:
+    """Falha do provider no /api/chat (não-stream) vira 502, não 500 cru."""
+    from openai import OpenAIError
+
+    agent = AsyncMock()
+    agent.chat.side_effect = OpenAIError("api down")
+    app.dependency_overrides[get_agent_service] = lambda: agent
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 502
+        assert "api down" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_list_memories_filters_by_topic() -> None:
     memory = _memory_mock()
     app.dependency_overrides[get_memory_service] = lambda: memory
