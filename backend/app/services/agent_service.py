@@ -100,7 +100,13 @@ class AgentService:
                 date=date.today(),
                 session_id=ctx.deps.session_id,
             )
-            return await ctx.deps.memory.store(text, metadata)
+            memory_id, persisted = await ctx.deps.memory.store(text, metadata)
+            if not persisted:
+                return (
+                    f"Não foi possível gravar a memória ({memory_id}): "
+                    "armazenamento vetorial indisponível"
+                )
+            return f"Memória gravada com sucesso ({memory_id})."
 
         @agent.tool
         async def recall_memory(

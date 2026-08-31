@@ -1,10 +1,10 @@
 """Orquestra o ciclo de memória: embedding -> vetor -> Qdrant e busca semântica.
 
-Graceful degradation: se o Qdrant estiver indisponível, `store` loga um
-warning (mas ainda devolve o id gerado, já que sua geração não depende do
-Qdrant) e `recall` degrada para lista vazia. Nenhum dos dois levanta exceção
-por causa do Qdrant. Falhas de embedding (ex.: OpenAI fora do ar) não são
-mascaradas: sem vetor não há o que persistir ou buscar.
+Graceful degradation: se o Qdrant estiver indisponível, `store` devolve
+`(id, persisted=False)` (o desfecho é exposto, não mascarado como sucesso) e
+`recall` degrada para lista vazia. Nenhum dos dois levanta exceção por causa
+do Qdrant. Falhas de embedding (ex.: OpenAI fora do ar) não são mascaradas:
+sem vetor não há o que persistir ou buscar.
 """
 
 from __future__ import annotations
@@ -28,11 +28,14 @@ class MemoryService:
         self._embeddings = embedding_service
         self._store = vector_store
 
-    async def store(self, text: str, metadata: MemoryMetadata) -> str:
-        """Gera o embedding de `text`, persiste no Qdrant e retorna o id.
+    async def store(self, text: str, metadata: MemoryMetadata) -> tuple[str, bool]:
+        """Gera o embedding de `text`, persiste no Qdrant e retorna (id, persisted).
 
-        Se o Qdrant estiver indisponível, loga um warning e ainda assim
-        retorna o id gerado — a memória apenas não fica persistida.
+        `persisted` expõe o desfecho real ao chamador: se o Qdrant estiver
+        indisponível, o id ainda é devolvido (sua geração não depende do
+        Qdrant), mas `persisted` vira False — a perda silenciosa de memória
+        deixa de ser mascarada como sucesso. O embedding nunca é mascarado:
+        sem vetor não há o que persistir nem buscar.
         """
         vector = await self._embeddings.embed(text)
         memory_id = str(uuid4())
@@ -40,8 +43,9 @@ class MemoryService:
         try:
             await self._store.upsert(memory_id, vector, payload)
         except Exception:
-            logger.warning("Qdrant indisponível: memória %s não foi persistida", memory_id)
-        return memory_id
+            logger.warning("Qdrant indisponível: memória %s NÃO foi persistida", memory_id)
+            return memory_id, False
+        return memory_id, True
 
     async def recall(self, query: str, limit: int, min_score: float) -> list[MemoryResult]:
         """Busca memórias semanticamente relacionadas a `query`.
