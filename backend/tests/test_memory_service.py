@@ -46,6 +46,19 @@ async def test_store_reports_not_persisted_when_qdrant_offline() -> None:
     assert persisted is False
 
 
+async def test_store_truncates_very_long_text_before_embedding() -> None:
+    service, embeddings, store = make_service()
+
+    memory_id, persisted = await service.store("x" * 10_000, METADATA)
+
+    embedded_text = embeddings.embed.await_args.args[0]
+    assert len(embedded_text) <= 4000
+    payload = store.upsert.await_args.args[2]
+    assert len(payload["text"]) <= 4000
+    assert isinstance(memory_id, str) and memory_id
+    assert persisted is True
+
+
 async def test_recall_returns_scored_memories() -> None:
     service, embeddings, store = make_service()
     store.search.return_value = [
