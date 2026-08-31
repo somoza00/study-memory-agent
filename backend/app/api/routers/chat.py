@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openai import OpenAIError
 
@@ -26,7 +26,14 @@ async def chat(
     agent: AgentService = Depends(get_agent_service),
 ) -> ChatResponse:
     """Processa uma mensagem com recuperação automática de memórias."""
-    result = await agent.chat(request.message, request.session_id)
+    try:
+        result = await agent.chat(request.message, request.session_id)
+    except OpenAIError as exc:
+        # Espelha o tratamento do endpoint de streaming: falha do provider
+        # vira uma resposta de erro estruturada (502), não um 500 cru.
+        raise HTTPException(
+            status_code=502, detail=f"Falha ao processar com o modelo: {exc}"
+        ) from exc
     return ChatResponse(
         response=result.response,
         memories_used=result.memories_used,
