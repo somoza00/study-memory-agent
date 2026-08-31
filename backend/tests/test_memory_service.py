@@ -23,10 +23,11 @@ def make_service() -> tuple[MemoryService, AsyncMock, AsyncMock]:
 async def test_store_embeds_and_upserts() -> None:
     service, embeddings, store = make_service()
 
-    memory_id = await service.store("dependency injection no FastAPI", METADATA)
+    memory_id, persisted = await service.store("dependency injection no FastAPI", METADATA)
 
     embeddings.embed.assert_awaited_once_with("dependency injection no FastAPI")
     store.upsert.assert_awaited_once()
+    assert persisted is True
     called_id, called_vector, called_payload = store.upsert.await_args.args
     assert called_id == memory_id
     assert called_vector == VECTOR
@@ -35,13 +36,14 @@ async def test_store_embeds_and_upserts() -> None:
     assert called_payload["session_id"] == "s1"
 
 
-async def test_store_returns_id_even_if_qdrant_offline() -> None:
+async def test_store_reports_not_persisted_when_qdrant_offline() -> None:
     service, _embeddings, store = make_service()
     store.upsert.side_effect = ConnectionError("qdrant offline")
 
-    memory_id = await service.store("texto qualquer", METADATA)
+    memory_id, persisted = await service.store("texto qualquer", METADATA)
 
     assert isinstance(memory_id, str) and memory_id
+    assert persisted is False
 
 
 async def test_recall_returns_scored_memories() -> None:
