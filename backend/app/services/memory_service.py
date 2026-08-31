@@ -20,6 +20,10 @@ from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
+# Limite de caracteres do texto de uma memória: trunca ANTES do embedding para
+# conter o custo (tokens) e evitar vetor diluído por um texto gigante.
+_MAX_TEXT_CHARS = 4000
+
 
 class MemoryService:
     """Serviço de domínio para persistir e recuperar memórias de estudo."""
@@ -37,6 +41,7 @@ class MemoryService:
         deixa de ser mascarada como sucesso. O embedding nunca é mascarado:
         sem vetor não há o que persistir nem buscar.
         """
+        text = text[:_MAX_TEXT_CHARS]  # contém custo de embedding / vetor diluído
         vector = await self._embeddings.embed(text)
         memory_id = str(uuid4())
         payload = {"text": text, **metadata.model_dump(mode="json")}
