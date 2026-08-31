@@ -15,13 +15,15 @@ from fastapi import Depends, FastAPI
 from app.api.routers.chat import router as chat_router
 from app.api.routers.health import router as health_router
 from app.api.routers.memories import router as memories_router
+from app.core.logging import configure_logging
 from app.core.security import require_api_key
 from app.services.observability import configure_langfuse_otel
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Configura o tracing OTel nativo do Pydantic AI apontando para o Langfuse."""
+    """Configura logging (com redação de segredos) e o tracing OTel → Langfuse."""
+    configure_logging()
     configure_langfuse_otel()
     yield
 
