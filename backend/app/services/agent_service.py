@@ -116,6 +116,7 @@ class AgentService:
             min_score: float = 0.7,
         ) -> list[dict[str, object]]:
             """Busca memórias semanticamente relacionadas a `query`."""
+            limit = max(1, min(int(limit), 20))  # teto p/ controlar tokens do recall
             results = await ctx.deps.memory.recall(query, limit, min_score)
             return [r.model_dump(mode="json") for r in results]
 
