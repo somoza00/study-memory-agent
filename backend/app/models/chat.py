@@ -8,8 +8,15 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     """Payload de entrada de `POST /api/chat`."""
 
-    message: str = Field(..., min_length=1, description="Mensagem do usuário.")
-    session_id: str = Field(..., min_length=1, description="Identificador da sessão de conversa.")
+    message: str = Field(
+        ..., min_length=1, max_length=10_000, description="Mensagem do usuário."
+    )
+    session_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Identificador da sessão de conversa.",
+    )
 
 
 class ChatResponse(BaseModel):

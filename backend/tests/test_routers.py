@@ -60,6 +60,17 @@ def test_chat_returns_response_and_memories_used() -> None:
         app.dependency_overrides.clear()
 
 
+def test_chat_rejects_oversized_message() -> None:
+    """Mensagem acima do limite é rejeitada na validação (422)."""
+    app.dependency_overrides[get_agent_service] = lambda: AsyncMock()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "x" * 10_001, "session_id": "s1"})
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_chat_returns_502_when_openai_fails() -> None:
     """Falha do provider no /api/chat (não-stream) vira 502, não 500 cru."""
     from openai import OpenAIError
