@@ -57,6 +57,10 @@ class MemoryService:
 
         Retorna lista vazia se o Qdrant estiver indisponível.
         """
+        # Defesa na camada de serviço (além do clamp na tool do agente):
+        # limita o volume buscado e mantém o score_threshold em [0,1].
+        limit = max(1, min(limit, 20))
+        min_score = max(0.0, min(min_score, 1.0))
         vector = await self._embeddings.embed(query)
         try:
             points = await self._store.search(vector, limit, min_score)
