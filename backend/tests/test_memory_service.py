@@ -59,6 +59,18 @@ async def test_store_truncates_very_long_text_before_embedding() -> None:
     assert persisted is True
 
 
+async def test_recall_clamps_limit_and_min_score() -> None:
+    """A camada de serviço reclama limit/min_score fora da faixa."""
+    service, _embeddings, store = make_service()
+    store.search.return_value = []
+
+    await service.recall("q", limit=500, min_score=-2.0)
+
+    _vector, limit, min_score = store.search.await_args.args
+    assert limit == 20
+    assert min_score == 0.0
+
+
 async def test_recall_returns_scored_memories() -> None:
     service, embeddings, store = make_service()
     store.search.return_value = [
