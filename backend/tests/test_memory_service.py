@@ -71,6 +71,20 @@ async def test_recall_clamps_limit_and_min_score() -> None:
     assert min_score == 0.0
 
 
+async def test_metadata_rejects_oversized_topic() -> None:
+    """topic acima do limite vira erro de validação (não é aceito em silêncio)."""
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        MemoryMetadata(
+            topic="x" * 121,
+            source="livro",
+            date=date(2026, 8, 25),
+            session_id="s1",
+        )
+
+
 async def test_recall_returns_scored_memories() -> None:
     service, embeddings, store = make_service()
     store.search.return_value = [
