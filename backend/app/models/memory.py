@@ -8,16 +8,16 @@ from __future__ import annotations
 
 from datetime import date as date_
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MemoryMetadata(BaseModel):
     """Metadata obrigatória associada a cada memória persistida."""
 
-    topic: str
-    source: str
+    topic: str = Field(..., max_length=120)
+    source: str = Field(..., max_length=200)
     date: date_
-    session_id: str
+    session_id: str = Field(..., max_length=200)
 
 
 class MemoryResult(BaseModel):
