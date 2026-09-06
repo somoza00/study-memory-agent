@@ -1,8 +1,14 @@
-__pycache__/
-*.py[cod]
-.venv/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-tests/
+# Itens que NÃO entram no contexto de build da imagem do backend.
+# Sem isso, o `COPY . .` do Dockerfile empacota .venv (pesado), caches,
+# testes e um possível .env local (que pode conter API keys).
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
 .env
+.env.*
+tests
+*.egg-info
