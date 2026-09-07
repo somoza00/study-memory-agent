@@ -43,7 +43,8 @@ jobs:
         with:
           node-version: "24"
       - name: Install
-        # Sem package-lock.json commitado, usa `npm install`.
-        run: npm install
+        # package-lock.json commitado (PR #12) → npm ci instala exatamente o
+        # lockfile e falha se estiver dessincronizado do package.json.
+        run: npm ci
       - name: Build
         run: npm run build
