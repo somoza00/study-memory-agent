@@ -65,7 +65,7 @@ curl -N -X POST http://localhost:8001/api/chat/stream \
 docker compose config -q
 cd backend && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]" && \
   .venv/bin/ruff check app && .venv/bin/mypy app && .venv/bin/pytest
-cd frontend && npm install && npm run build
+cd frontend && npm ci && npm run build
 ```
 
 ## Status
