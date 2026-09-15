@@ -131,4 +131,14 @@ services:
         required: false
     ports:
       - "${FRONTEND_PORT:-5174}:5173"
+    healthcheck:
+      # O frontend não tinha healthcheck; usa o próprio node (fetch global,
+      # sem depender de curl) na porta INTERNA 5173 (não ${FRONTEND_PORT}).
+      # Se o Vite não responder, o container fica "unhealthy" e é visível no
+      # monitor/health do compose.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks: [sma]
