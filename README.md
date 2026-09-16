@@ -68,6 +68,8 @@ cd backend && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]" && \
 cd frontend && npm ci && npm run build
 ```
 
+> **Atalhos (Makefile):** `make config` (valida o compose), `make venv` (cria o `.venv` do backend), `make lint` (ruff+mypy), `make test` (ruff+mypy+pytest) e `make frontend-build` (npm ci + build).
+
 ## Status
 Fases **1–4 concluídas**:
 - **F1** — scaffold do monorepo + Docker Compose funcional (Qdrant, Postgres, Redis, Langfuse, backend, frontend)
