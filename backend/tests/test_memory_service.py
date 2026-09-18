@@ -66,7 +66,7 @@ async def test_recall_clamps_limit_and_min_score() -> None:
 
     await service.recall("q", limit=500, min_score=-2.0)
 
-    _vector, limit, min_score = store.search.await_args.args
+    _vector, limit, min_score, _topic = store.search.await_args.args
     assert limit == 20
     assert min_score == 0.0
 
@@ -105,12 +105,22 @@ async def test_recall_returns_scored_memories() -> None:
     results = await service.recall("como funciona DI no FastAPI?", limit=5, min_score=0.5)
 
     embeddings.embed.assert_awaited_once_with("como funciona DI no FastAPI?")
-    store.search.assert_awaited_once_with(VECTOR, 5, 0.5)
+    store.search.assert_awaited_once_with(VECTOR, 5, 0.5, None)
     assert len(results) == 1
     assert results[0].id == "abc"
     assert results[0].score == 0.87
     assert results[0].text == "dependency injection no FastAPI"
     assert results[0].metadata.topic == "fastapi"
+
+
+async def test_recall_filters_by_topic() -> None:
+    """`topic` é repassado para a busca vetorial (filtro de payload)."""
+    service, _embeddings, store = make_service()
+    store.search.return_value = []
+
+    await service.recall("o que estudei sobre react?", limit=5, min_score=0.5, topic="react")
+
+    assert store.search.await_args.args == (VECTOR, 5, 0.5, "react")
 
 
 async def test_recall_degrades_to_empty_list_if_qdrant_offline() -> None:

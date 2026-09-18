@@ -17,6 +17,11 @@ class ChatRequest(BaseModel):
         max_length=200,
         description="Identificador da sessão de conversa.",
     )
+    topic: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Filtra a recuperação de memória para um tópico específico (opcional).",
+    )
 
 
 class ChatResponse(BaseModel):

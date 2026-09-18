@@ -20,8 +20,8 @@ from app.services.agent_service import ChatResult, StreamEvent
 class _FakeStreamAgent:
     """Substituto do AgentService que emite eventos SSE sem tocar o LLM."""
 
-    async def stream_chat(self, message: str, session_id: str):
-        del message, session_id
+    async def stream_chat(self, message: str, session_id: str, topic: str | None = None):
+        del message, session_id, topic
         yield StreamEvent(type="token", content="Olá")
         yield StreamEvent(type="token", content=" mundo")
         yield StreamEvent(type="done", memories_used=2)
@@ -55,7 +55,7 @@ def test_chat_returns_response_and_memories_used() -> None:
         assert body["response"] == "Resposta simulada do agente."
         assert body["memories_used"] == 2
         assert body["session_id"] == "s1"
-        agent.chat.assert_awaited_once_with("oi", "s1")
+        agent.chat.assert_awaited_once_with("oi", "s1", None)
     finally:
         app.dependency_overrides.clear()
 
