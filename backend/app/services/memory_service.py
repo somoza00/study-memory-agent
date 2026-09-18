@@ -52,8 +52,14 @@ class MemoryService:
             return memory_id, False
         return memory_id, True
 
-    async def recall(self, query: str, limit: int, min_score: float) -> list[MemoryResult]:
-        """Busca memórias semanticamente relacionadas a `query`.
+    async def recall(
+        self,
+        query: str,
+        limit: int,
+        min_score: float,
+        topic: str | None = None,
+    ) -> list[MemoryResult]:
+        """Busca memórias relacionadas a `query`, opcionalmente filtradas por `topic`.
 
         Retorna lista vazia se o Qdrant estiver indisponível.
         """
@@ -63,7 +69,7 @@ class MemoryService:
         min_score = max(0.0, min(min_score, 1.0))
         vector = await self._embeddings.embed(query)
         try:
-            points = await self._store.search(vector, limit, min_score)
+            points = await self._store.search(vector, limit, min_score, topic)
         except Exception:
             logger.warning("Qdrant indisponível: recall retornando vazio")
             return []

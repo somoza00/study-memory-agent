@@ -25,9 +25,9 @@ async def chat(
     request: ChatRequest,
     agent: AgentService = Depends(get_agent_service),
 ) -> ChatResponse:
-    """Processa uma mensagem com recuperação automática de memórias."""
+    """Processa uma mensagem com recuperação de memórias (filtro `topic` opcional)."""
     try:
-        result = await agent.chat(request.message, request.session_id)
+        result = await agent.chat(request.message, request.session_id, request.topic)
     except OpenAIError as exc:
         # Espelha o tratamento do endpoint de streaming: falha do provider
         # vira uma resposta de erro estruturada (502), não um 500 cru.
@@ -61,7 +61,9 @@ async def chat_stream(
 
     async def event_source() -> AsyncIterator[str]:
         try:
-            async for event in agent.stream_chat(request.message, request.session_id):
+            async for event in agent.stream_chat(
+                request.message, request.session_id, request.topic
+            ):
                 data: dict[str, object] = {"type": event.type}
                 if event.type == "done":
                     data["memories_used"] = event.memories_used

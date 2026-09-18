@@ -61,12 +61,24 @@ class VectorStore:
             points=[PointStruct(id=id, vector=vector, payload=payload)],
         )
 
-    async def search(self, vector: list[float], limit: int, min_score: float) -> list[ScoredPoint]:
-        """Retorna os pontos mais similares a `vector`, ordenados por score."""
+    async def search(
+        self,
+        vector: list[float],
+        limit: int,
+        min_score: float,
+        topic: str | None = None,
+    ) -> list[ScoredPoint]:
+        """Retorna os pontos mais similares a `vector`, opcionalmente filtrados por `topic`."""
         await self._ensure_collection()
+        query_filter: Filter | None = None
+        if topic is not None:
+            query_filter = Filter(
+                must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+            )
         response = await self._client.query_points(
             collection_name=self._collection,
             query=vector,
+            query_filter=query_filter,
             limit=limit,
             score_threshold=min_score,
         )
