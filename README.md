@@ -77,4 +77,13 @@ Fases **1–4 concluídas**:
 - **F3** — agente Pydantic AI (tools `store_memory`, `recall_memory`, `list_topics`) + rotas de chat e memórias
 - **F4** — streaming SSE no backend + UI React/Tailwind (dark) com chat, tópicos e badge de memórias
 
-Pendências registradas: merge do fix #3 (resposta 503 quando sem `OPENAI_API_KEY`) e filtro de tópico no `/api/chat`.
+Pendências: **filtro de tópico no `/api/chat`**. O antigo fix #3 (resposta 503
+quando sem `OPENAI_API_KEY`) **não será mergeado**: o tratamento de erro do
+provider já foi coberto depois (o endpoint não-stream responde erro estruturado
+quando o provider falha) — mantê-lo conflitaria com o comportamento atual.
+
+**Robustez/ops aplicados depois das fases iniciais:** auth `X-API-Key`
+(fail-closed em produção), redação de segredos no logging, frontend rodando
+como usuário `node` (non-root), healthchecks de backend **e** frontend,
+`restart: unless-stopped`, `.editorconfig`, `.gitattributes`, Dependabot
+(pip/npm/docker/actions) e `Makefile` com os gates do CI.
