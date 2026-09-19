@@ -141,6 +141,38 @@ def test_delete_memory_returns_204() -> None:
         app.dependency_overrides.clear()
 
 
+def test_get_memory_returns_memory_by_id() -> None:
+    memory = _memory_mock()
+    memory.get.return_value = StoredMemory(
+        id="abc",
+        text="sobre DI",
+        metadata=MemoryMetadata(
+            topic="fastapi", source="livro", date=date(2026, 8, 25), session_id="s1"
+        ),
+    )
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/abc")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["id"] == "abc"
+        memory.get.assert_awaited_once_with("abc")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_memory_404_when_missing() -> None:
+    memory = AsyncMock()
+    memory.get.return_value = None
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/xyz")
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_deep_health_reports_qdrant_status() -> None:
     store = AsyncMock()
     store.ping.return_value = True

@@ -189,6 +189,42 @@ async def test_list_degrades_to_empty() -> None:
     assert await service.list() == []
 
 
+async def test_get_delegates_and_converts() -> None:
+    service, _embeddings, store = make_service()
+    store.get.return_value = Record(
+        id="abc",
+        payload={
+            "text": "sobre DI",
+            "topic": "fastapi",
+            "source": "livro",
+            "date": "2026-08-25",
+            "session_id": "s1",
+        },
+    )
+
+    mem = await service.get("abc")
+
+    assert mem is not None
+    assert mem.id == "abc"
+    assert mem.text == "sobre DI"
+    assert mem.metadata.topic == "fastapi"
+    store.get.assert_awaited_once_with("abc")
+
+
+async def test_get_returns_none_when_missing() -> None:
+    service, _embeddings, store = make_service()
+    store.get.return_value = None
+
+    assert await service.get("abc") is None
+
+
+async def test_get_degrades_to_none_on_qdrant_offline() -> None:
+    service, _embeddings, store = make_service()
+    store.get.side_effect = ConnectionError("qdrant offline")
+
+    assert await service.get("abc") is None
+
+
 async def test_delete_delegates() -> None:
     service, _embeddings, store = make_service()
 

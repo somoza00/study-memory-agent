@@ -8,7 +8,7 @@ Expõe:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.deps import get_memory_service
 from app.models.memory import StoredMemory
@@ -43,3 +43,15 @@ async def delete_memory(
     """Remove uma memória pelo id."""
     await memory.delete(memory_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/memories/{memory_id}", response_model=StoredMemory)
+async def get_memory(
+    memory_id: str,
+    memory: MemoryService = Depends(get_memory_service),
+) -> StoredMemory:
+    """Retorna uma memória pelo id; 404 se não existir."""
+    found = await memory.get(memory_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="memória não encontrada")
+    return found
