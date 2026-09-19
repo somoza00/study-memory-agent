@@ -80,6 +80,17 @@ class VectorStore:
             points_selector=PointIdsList(points=[id]),
         )
 
+    async def get(self, id: str) -> Record | None:
+        """Retorna um ponto pelo id, ou `None` se não existir."""
+        await self._ensure_collection()
+        points = await self._client.retrieve(
+            collection_name=self._collection,
+            ids=[id],
+            with_payload=True,
+            with_vectors=False,
+        )
+        return points[0] if points else None
+
     async def list_topics(self) -> list[str]:
         """Retorna os `topic` distintos presentes na collection."""
         topics: set[str] = set()

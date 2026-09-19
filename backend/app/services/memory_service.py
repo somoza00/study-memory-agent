@@ -102,6 +102,18 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível: memória %s não foi removida", memory_id)
 
+    async def get(self, memory_id: str) -> StoredMemory | None:
+        """Retorna uma memória pelo id, ou `None` se não existir.
+
+        Retorna `None` também se o Qdrant estiver indisponível (graceful).
+        """
+        try:
+            record = await self._store.get(memory_id)
+        except Exception:
+            logger.warning("Qdrant indisponível: get retornando None")
+            return None
+        return _to_stored_memory(record) if record else None
+
 
 def _to_memory_result(point: ScoredPoint) -> MemoryResult:
     """Converte um `ScoredPoint` do Qdrant em `MemoryResult`."""
