@@ -125,14 +125,23 @@ class VectorStore:
             offset = next_page
         return sorted(topics)
 
-    async def list(self, limit: int, topic: str | None = None) -> list[Record]:
-        """Lista memórias, opcionalmente filtradas por `topic`, limitadas a `limit`."""
+    async def list(
+        self, limit: int, topic: str | None = None, session_id: str | None = None
+    ) -> list[Record]:
+        """Lista memórias, filtradas por `topic` e `session_id`, limitadas a `limit`."""
         await self._ensure_collection()
-        scroll_filter: Filter | None = None
+        conditions = []
         if topic is not None:
-            scroll_filter = Filter(
-                must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+            conditions.append(FieldCondition(key="topic", match=MatchValue(value=topic)))
+        if session_id is not None:
+            conditions.append(
+                FieldCondition(key="session_id", match=MatchValue(value=session_id))
             )
+        # `Filter.must` é tipado como lista invariante no qdrant-client; o literal
+        # inline funciona, mas construção incremental exige ignore (quirk do cliente).
+        scroll_filter: Filter | None = (
+            Filter(must=conditions) if conditions else None  # type: ignore[arg-type]
+        )
         records, _next_page = await self._client.scroll(
             collection_name=self._collection,
             scroll_filter=scroll_filter,
