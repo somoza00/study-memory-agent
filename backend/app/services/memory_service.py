@@ -86,13 +86,18 @@ class MemoryService:
             logger.warning("Qdrant indisponível: list_topics retornando vazio")
             return []
 
-    async def list(self, topic: str | None = None, limit: int = 20) -> list[StoredMemory]:
-        """Lista memórias persistidas, opcionalmente filtradas por `topic`.
+    async def list(
+        self,
+        topic: str | None = None,
+        limit: int = 20,
+        session_id: str | None = None,
+    ) -> list[StoredMemory]:
+        """Lista memórias persistidas, opcionalmente filtradas por `topic` e `session_id`.
 
         Retorna lista vazia se o Qdrant estiver indisponível.
         """
         try:
-            records = await self._store.list(limit, topic)
+            records = await self._store.list(limit, topic, session_id)
         except Exception:
             logger.warning("Qdrant indisponível: list retornando vazio")
             return []

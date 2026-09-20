@@ -102,6 +102,19 @@ def test_list_memories_filters_by_topic() -> None:
         app.dependency_overrides.clear()
 
 
+def test_list_memories_filters_by_session() -> None:
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories?session_id=s1&limit=3")
+        assert resp.status_code == 200, resp.text
+        assert memory.list.await_args.kwargs["session_id"] == "s1"
+        assert memory.list.await_args.kwargs["limit"] == 3
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_topics_returns_distinct_list() -> None:
     memory = _memory_mock()
     app.dependency_overrides[get_memory_service] = lambda: memory

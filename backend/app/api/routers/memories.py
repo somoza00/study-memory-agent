@@ -20,11 +20,14 @@ router = APIRouter(prefix="/api", tags=["memories"])
 @router.get("/memories", response_model=list[StoredMemory])
 async def list_memories(
     topic: str | None = Query(default=None, description="Filtra memórias por tópico."),
+    session_id: str | None = Query(
+        default=None, max_length=200, description="Filtra memórias por sessão de conversa."
+    ),
     limit: int = Query(default=20, ge=1, le=100, description="Quantidade máxima de itens."),
     memory: MemoryService = Depends(get_memory_service),
 ) -> list[StoredMemory]:
-    """Lista memórias persistidas, opcionalmente filtradas por `topic`."""
-    return await memory.list(topic=topic, limit=limit)
+    """Lista memórias persistidas, opcionalmente filtradas por `topic` e/ou `session_id`."""
+    return await memory.list(topic=topic, limit=limit, session_id=session_id)
 
 
 @router.get("/topics", response_model=list[str])

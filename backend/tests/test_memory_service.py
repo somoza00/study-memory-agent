@@ -179,7 +179,17 @@ async def test_list_delegates_and_converts_records() -> None:
     assert results[0].id == "abc"
     assert results[0].metadata.topic == "fastapi"
     assert results[0].text == "sobre DI"
-    store.list.assert_awaited_once_with(5, "fastapi")
+    store.list.assert_awaited_once_with(5, "fastapi", None)
+
+
+async def test_list_filters_by_session() -> None:
+    """`session_id` é repassado para a listagem (filtro de payload)."""
+    service, _embeddings, store = make_service()
+    store.list.return_value = []
+
+    await service.list(topic="fastapi", limit=5, session_id="s9")
+
+    assert store.list.await_args.args == (5, "fastapi", "s9")
 
 
 async def test_list_degrades_to_empty() -> None:
