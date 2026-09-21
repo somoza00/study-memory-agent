@@ -8,13 +8,31 @@ Expõe:
 
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.deps import get_memory_service
-from app.models.memory import StoredMemory
+from app.models.memory import MemoryCreate, MemoryCreated, MemoryMetadata, StoredMemory
 from app.services.memory_service import MemoryService
 
 router = APIRouter(prefix="/api", tags=["memories"])
+
+
+@router.post("/memories", status_code=status.HTTP_201_CREATED, response_model=MemoryCreated)
+async def create_memory(
+    payload: MemoryCreate,
+    memory: MemoryService = Depends(get_memory_service),
+) -> MemoryCreated:
+    """Cria (armazena) uma memória manualmente, além de via agente."""
+    metadata = MemoryMetadata(
+        topic=payload.topic,
+        source=payload.source,
+        date=date.today(),
+        session_id=payload.session_id,
+    )
+    memory_id, persisted = await memory.store(payload.text, metadata)
+    return MemoryCreated(id=memory_id, persisted=persisted, metadata=metadata)
 
 
 @router.get("/memories", response_model=list[StoredMemory])

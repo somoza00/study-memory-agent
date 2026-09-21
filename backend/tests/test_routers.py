@@ -186,6 +186,55 @@ def test_get_memory_404_when_missing() -> None:
         app.dependency_overrides.clear()
 
 
+def test_create_memory_returns_201() -> None:
+    memory = _memory_mock()
+    memory.store.return_value = ("new-1", True)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "aprendi X", "topic": "react", "source": "nota", "session_id": "s1"},
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["id"] == "new-1"
+        assert body["persisted"] is True
+        assert body["metadata"]["topic"] == "react"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_memory_reports_unpersisted() -> None:
+    memory = _memory_mock()
+    memory.store.return_value = ("new-2", False)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "ficou sem qdrant", "topic": "x", "source": "y", "session_id": "s2"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["persisted"] is False
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_memory_rejects_oversized_topic() -> None:
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "ok", "topic": "x" * 121, "source": "y", "session_id": "s3"},
+        )
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_deep_health_reports_qdrant_status() -> None:
     store = AsyncMock()
     store.ping.return_value = True
