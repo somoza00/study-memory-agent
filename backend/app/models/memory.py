@@ -35,3 +35,20 @@ class StoredMemory(BaseModel):
     id: str
     text: str
     metadata: MemoryMetadata
+
+
+class MemoryCreate(BaseModel):
+    """Payload do `POST /api/memories` (criação manual de uma memória)."""
+
+    text: str = Field(..., min_length=1, max_length=4000, description="Texto da memória.")
+    topic: str = Field(..., max_length=120)
+    source: str = Field(..., max_length=200)
+    session_id: str = Field(..., max_length=200)
+
+
+class MemoryCreated(BaseModel):
+    """Resposta do `POST /api/memories`."""
+
+    id: str
+    persisted: bool = Field(..., description="Se o armazenamento vetorial persistiu de fato.")
+    metadata: MemoryMetadata
