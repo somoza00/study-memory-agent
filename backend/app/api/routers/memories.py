@@ -76,3 +76,13 @@ async def get_memory(
     if found is None:
         raise HTTPException(status_code=404, detail="memória não encontrada")
     return found
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(
+    session_id: str,
+    memory: MemoryService = Depends(get_memory_service),
+) -> Response:
+    """Remove todas as memórias de uma sessão de conversa."""
+    await memory.delete_session(session_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

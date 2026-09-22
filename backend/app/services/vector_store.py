@@ -15,6 +15,7 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    FilterSelector,
     MatchValue,
     PointIdsList,
     PointStruct,
@@ -102,6 +103,18 @@ class VectorStore:
             with_vectors=False,
         )
         return points[0] if points else None
+
+    async def delete_by_session(self, session_id: str) -> None:
+        """Remove todos os pontos cujo payload tem `session_id` (filtro)."""
+        await self._ensure_collection()
+        await self._client.delete(
+            collection_name=self._collection,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[FieldCondition(key="session_id", match=MatchValue(value=session_id))]
+                )
+            ),
+        )
 
     async def list_topics(self) -> list[str]:
         """Retorna os `topic` distintos presentes na collection."""

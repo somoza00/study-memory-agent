@@ -113,6 +113,16 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível: memória %s não foi removida", memory_id)
 
+    async def delete_session(self, session_id: str) -> None:
+        """Remove todas as memórias de uma sessão de conversa.
+
+        Não levanta exceção se o Qdrant estiver indisponível.
+        """
+        try:
+            await self._store.delete_by_session(session_id)
+        except Exception:
+            logger.warning("Qdrant indisponível: delete_session (%s) não executado", session_id)
+
     async def get(self, memory_id: str) -> StoredMemory | None:
         """Retorna uma memória pelo id, ou `None` se não existir.
 

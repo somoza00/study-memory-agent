@@ -241,3 +241,20 @@ async def test_delete_delegates() -> None:
     await service.delete("abc")
 
     store.delete.assert_awaited_once_with("abc")
+
+
+async def test_delete_session_delegates() -> None:
+    service, _embeddings, store = make_service()
+
+    await service.delete_session("sess-1")
+
+    store.delete_by_session.assert_awaited_once_with("sess-1")
+
+
+async def test_delete_session_degrades_on_qdrant_offline() -> None:
+    service, _embeddings, store = make_service()
+    store.delete_by_session.side_effect = ConnectionError("qdrant offline")
+
+    # Não levanta exceção (graceful degradation).
+    await service.delete_session("sess-1")
+    assert True
