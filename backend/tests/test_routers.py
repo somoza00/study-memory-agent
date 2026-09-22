@@ -186,6 +186,18 @@ def test_get_memory_404_when_missing() -> None:
         app.dependency_overrides.clear()
 
 
+def test_delete_session_returns_204() -> None:
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.delete("/api/sessions/sess-1")
+        assert resp.status_code == 204
+        memory.delete_session.assert_awaited_once_with("sess-1")
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_create_memory_returns_201() -> None:
     memory = _memory_mock()
     memory.store.return_value = ("new-1", True)
