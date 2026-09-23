@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date as date_
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MemoryMetadata(BaseModel):
@@ -44,6 +44,14 @@ class MemoryCreate(BaseModel):
     topic: str = Field(..., max_length=120)
     source: str = Field(..., max_length=200)
     session_id: str = Field(..., max_length=200)
+
+    @field_validator("text")
+    @classmethod
+    def _reject_blank_text(cls, value: str) -> str:
+        """Texto só com espaços viraria embedding-lixo; rejeita (422) antes."""
+        if not value.strip():
+            raise ValueError("text não pode conter apenas espaços")
+        return value
 
 
 class MemoryCreated(BaseModel):

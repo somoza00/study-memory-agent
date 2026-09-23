@@ -247,6 +247,45 @@ def test_create_memory_rejects_oversized_topic() -> None:
         app.dependency_overrides.clear()
 
 
+def test_list_memories_rejects_oversized_topic() -> None:
+    """`topic` acima de 120 no filtro (GET) é rejeitado (422), como `session_id`."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories?topic=" + "x" * 121)
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_memory_rejects_blank_text() -> None:
+    """Texto só com espaços é rejeitado (422) — não gera embedding-lixo."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "   ", "topic": "x", "source": "y", "session_id": "s4"},
+        )
+        assert resp.status_code == 422
+        memory.store.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_rejects_blank_message() -> None:
+    """Mensagem só com espaços é rejeitada (422)."""
+    app.dependency_overrides[get_agent_service] = lambda: AsyncMock()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "   ", "session_id": "s1"})
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_deep_health_reports_qdrant_status() -> None:
     store = AsyncMock()
     store.ping.return_value = True

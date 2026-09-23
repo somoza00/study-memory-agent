@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChatRequest(BaseModel):
@@ -22,6 +22,14 @@ class ChatRequest(BaseModel):
         max_length=120,
         description="Filtra a recuperação de memória para um tópico específico (opcional).",
     )
+
+    @field_validator("message")
+    @classmethod
+    def _reject_blank_message(cls, value: str) -> str:
+        """Mensagem só com espaços não gera resposta útil; rejeita (422) antes."""
+        if not value.strip():
+            raise ValueError("message não pode conter apenas espaços")
+        return value
 
 
 class ChatResponse(BaseModel):
