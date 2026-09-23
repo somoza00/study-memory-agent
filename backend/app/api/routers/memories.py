@@ -37,7 +37,9 @@ async def create_memory(
 
 @router.get("/memories", response_model=list[StoredMemory])
 async def list_memories(
-    topic: str | None = Query(default=None, description="Filtra memórias por tópico."),
+    topic: str | None = Query(
+        default=None, max_length=120, description="Filtra memórias por tópico."
+    ),
     session_id: str | None = Query(
         default=None, max_length=200, description="Filtra memórias por sessão de conversa."
     ),
