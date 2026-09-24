@@ -266,6 +266,18 @@ def test_create_memory_returns_502_when_embedding_fails() -> None:
         app.dependency_overrides.clear()
 
 
+def test_list_memories_rejects_oversized_topic() -> None:
+    """`topic` acima de 120 no filtro (GET) é rejeitado (422), como `session_id`."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories?topic=" + "x" * 121)
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_create_memory_rejects_blank_topic() -> None:
     """Metadata (topic/source/session_id) só com espaços é rejeitada (422)."""
     memory = AsyncMock()
@@ -275,6 +287,22 @@ def test_create_memory_rejects_blank_topic() -> None:
         resp = client.post(
             "/api/memories",
             json={"text": "ok", "topic": "  ", "source": "y", "session_id": "s4"},
+        )
+        assert resp.status_code == 422
+        memory.store.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_memory_rejects_blank_text() -> None:
+    """Texto só com espaços é rejeitado (422) — não gera embedding-lixo."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "   ", "topic": "x", "source": "y", "session_id": "s4"},
         )
         assert resp.status_code == 422
         memory.store.assert_not_awaited()
@@ -298,6 +326,17 @@ def test_chat_stream_emits_error_event_on_non_openai_failure() -> None:
         assert resp.status_code == 200
         assert '"type": "error"' in resp.text
         assert '"type": "done"' not in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_rejects_blank_message() -> None:
+    """Mensagem só com espaços é rejeitada (422)."""
+    app.dependency_overrides[get_agent_service] = lambda: AsyncMock()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "   ", "session_id": "s1"})
+        assert resp.status_code == 422
     finally:
         app.dependency_overrides.clear()
 

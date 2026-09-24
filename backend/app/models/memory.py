@@ -53,6 +53,14 @@ class MemoryCreate(BaseModel):
             raise ValueError("não pode conter apenas espaços")
         return value
 
+    @field_validator("text")
+    @classmethod
+    def _reject_blank_text(cls, value: str) -> str:
+        """Texto só com espaços viraria embedding-lixo; rejeita (422) antes."""
+        if not value.strip():
+            raise ValueError("text não pode conter apenas espaços")
+        return value
+
 
 class MemoryCreated(BaseModel):
     """Resposta do `POST /api/memories`."""

@@ -235,6 +235,37 @@ async def test_get_degrades_to_none_on_qdrant_offline() -> None:
     assert await service.get("abc") is None
 
 
+# --- Payload inválido (dado legado/gravado externamente) => degrada, nunca 500 ---
+
+
+async def test_recall_degrades_to_empty_on_malformed_payload() -> None:
+    """Payload sem session_id não estoura 500 no recall; retorna lista vazia."""
+    service, _embeddings, store = make_service()
+    store.search.return_value = [
+        ScoredPoint(id="abc", version=1, score=0.9, payload={"text": "sobre DI"})
+    ]
+
+    results = await service.recall("o que sei?", limit=5, min_score=0.5)
+
+    assert results == []
+
+
+async def test_list_degrades_to_empty_on_malformed_payload() -> None:
+    """Payload malformado na listagem degrada para [] (nunca 500)."""
+    service, _embeddings, store = make_service()
+    store.list.return_value = [Record(id="abc", payload={"text": "sobre DI"})]
+
+    assert await service.list() == []
+
+
+async def test_get_returns_none_on_malformed_payload() -> None:
+    """Payload malformado no get degrada para None (nunca 500)."""
+    service, _embeddings, store = make_service()
+    store.get.return_value = Record(id="abc", payload={"text": "sobre DI"})
+
+    assert await service.get("abc") is None
+
+
 async def test_delete_delegates() -> None:
     service, _embeddings, store = make_service()
 

@@ -70,10 +70,10 @@ class MemoryService:
         vector = await self._embeddings.embed(query)
         try:
             points = await self._store.search(vector, limit, min_score, topic)
+            return [_to_memory_result(point) for point in points]
         except Exception:
-            logger.warning("Qdrant indisponível: recall retornando vazio")
+            logger.warning("Qdrant indisponível ou payload inválido: recall retornando vazio")
             return []
-        return [_to_memory_result(point) for point in points]
 
     async def list_topics(self) -> list[str]:
         """Lista os tópicos distintos das memórias existentes.
@@ -98,10 +98,10 @@ class MemoryService:
         """
         try:
             records = await self._store.list(limit, topic, session_id)
+            return [_to_stored_memory(record) for record in records]
         except Exception:
-            logger.warning("Qdrant indisponível: list retornando vazio")
+            logger.warning("Qdrant indisponível ou payload inválido: list retornando vazio")
             return []
-        return [_to_stored_memory(record) for record in records]
 
     async def delete(self, memory_id: str) -> None:
         """Remove uma memória pelo id.
@@ -130,10 +130,10 @@ class MemoryService:
         """
         try:
             record = await self._store.get(memory_id)
+            return _to_stored_memory(record) if record else None
         except Exception:
-            logger.warning("Qdrant indisponível: get retornando None")
+            logger.warning("Qdrant indisponível ou payload inválido: get retornando None")
             return None
-        return _to_stored_memory(record) if record else None
 
 
 def _to_memory_result(point: ScoredPoint) -> MemoryResult:
