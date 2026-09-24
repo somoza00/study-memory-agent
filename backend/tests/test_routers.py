@@ -247,6 +247,61 @@ def test_create_memory_rejects_oversized_topic() -> None:
         app.dependency_overrides.clear()
 
 
+def test_create_memory_returns_502_when_embedding_fails() -> None:
+    """Falha de embedding (OpenAI) no POST /api/memories vira 502, não 500 cru."""
+    from openai import OpenAIError
+
+    memory = AsyncMock()
+    memory.store.side_effect = OpenAIError("embedding api down")
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "aprendi X", "topic": "react", "source": "nota", "session_id": "s1"},
+        )
+        assert resp.status_code == 502
+        assert "embedding api down" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_memory_rejects_blank_topic() -> None:
+    """Metadata (topic/source/session_id) só com espaços é rejeitada (422)."""
+    memory = AsyncMock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "ok", "topic": "  ", "source": "y", "session_id": "s4"},
+        )
+        assert resp.status_code == 422
+        memory.store.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_stream_emits_error_event_on_non_openai_failure() -> None:
+    """Exceção não-OpenAI no stream vira evento de erro SSE (nunca stream truncado)."""
+
+    class _BrokenStream:
+        async def stream_chat(self, message: str, session_id: str, topic: str | None = None):
+            del message, session_id, topic
+            yield StreamEvent(type="token", content="oi")
+            raise RuntimeError("boom")
+
+    app.dependency_overrides[get_agent_service] = lambda: _BrokenStream()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat/stream", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 200
+        assert '"type": "error"' in resp.text
+        assert '"type": "done"' not in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_deep_health_reports_qdrant_status() -> None:
     store = AsyncMock()
     store.ping.return_value = True

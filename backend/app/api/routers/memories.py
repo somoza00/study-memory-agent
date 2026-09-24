@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from openai import OpenAIError
 
 from app.api.deps import get_memory_service
 from app.models.memory import MemoryCreate, MemoryCreated, MemoryMetadata, StoredMemory
@@ -31,7 +32,14 @@ async def create_memory(
         date=date.today(),
         session_id=payload.session_id,
     )
-    memory_id, persisted = await memory.store(payload.text, metadata)
+    try:
+        memory_id, persisted = await memory.store(payload.text, metadata)
+    except OpenAIError as exc:
+        # Espelha o /api/chat: falha de embedding (OpenAI) vira 502, não 500 cru
+        # (regra do AGENTS.md: nunca 500).
+        raise HTTPException(
+            status_code=502, detail=f"Falha ao gerar embedding: {exc}"
+        ) from exc
     return MemoryCreated(id=memory_id, persisted=persisted, metadata=metadata)
 
 
