@@ -7,6 +7,7 @@ Expõe `POST /api/chat` (resposta completa) e `POST /api/chat/stream`
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +18,7 @@ from app.api.deps import get_agent_service
 from app.models.chat import ChatRequest, ChatResponse
 from app.services.agent_service import AgentService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
@@ -72,6 +74,12 @@ async def chat_stream(
                 yield _sse(data)
         except OpenAIError as exc:
             yield _sse({"type": "error", "detail": str(exc)})
+        except Exception as exc:
+            # Garante o contrato documentado "nunca um stream truncado": qualquer
+            # exceção não-OpenAI vira um evento de erro, em vez de abortar a
+            # conexão no meio (headers já enviados).
+            logger.exception("stream_chat falhou com erro não-OpenAI")
+            yield _sse({"type": "error", "detail": f"Erro interno: {exc}"})
 
     return StreamingResponse(
         event_source(),
