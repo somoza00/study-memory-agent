@@ -36,6 +36,11 @@ async def chat(
         raise HTTPException(
             status_code=502, detail=f"Falha ao processar com o modelo: {exc}"
         ) from exc
+    except Exception as exc:
+        # Espelha o /api/chat/stream: erro não-OpenAI vira 502 estruturado,
+        # nunca 500 cru (regra do AGENTS.md).
+        logger.exception("chat falhou com erro não-OpenAI")
+        raise HTTPException(status_code=502, detail=f"Erro interno: {exc}") from exc
     return ChatResponse(
         response=result.response,
         memories_used=result.memories_used,

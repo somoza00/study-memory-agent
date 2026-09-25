@@ -75,13 +75,10 @@ class MemoryService:
             logger.warning("Qdrant indisponível ou payload inválido: recall retornando vazio")
             return []
 
-    async def list_topics(self) -> list[str]:
-        """Lista os tópicos distintos das memórias existentes.
-
-        Retorna lista vazia se o Qdrant estiver indisponível.
-        """
+    async def list_topics(self, limit: int = 50) -> list[str]:
+        """Lista tópicos distintos (até `limit`); lista vazia se Qdrant fora."""
         try:
-            return await self._store.list_topics()
+            return await self._store.list_topics(limit)
         except Exception:
             logger.warning("Qdrant indisponível: list_topics retornando vazio")
             return []

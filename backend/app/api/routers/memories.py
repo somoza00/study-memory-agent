@@ -60,10 +60,11 @@ async def list_memories(
 
 @router.get("/topics", response_model=list[str])
 async def list_topics(
+    limit: int = Query(default=50, ge=1, le=200, description="Quantidade máxima de tópicos."),
     memory: MemoryService = Depends(get_memory_service),
 ) -> list[str]:
-    """Lista os tópicos distintos das memórias existentes."""
-    return await memory.list_topics()
+    """Lista os tópicos distintos das memórias existentes (limitado a `limit`)."""
+    return await memory.list_topics(limit=limit)
 
 
 @router.delete("/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
