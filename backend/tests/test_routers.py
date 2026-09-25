@@ -87,6 +87,20 @@ def test_chat_returns_502_when_openai_fails() -> None:
         app.dependency_overrides.clear()
 
 
+def test_chat_returns_502_on_non_openai_failure() -> None:
+    """Erro não-OpenAI no /api/chat (não-stream) vira 502, não 500 cru (nunca 500)."""
+    agent = AsyncMock()
+    agent.chat.side_effect = RuntimeError("boom")
+    app.dependency_overrides[get_agent_service] = lambda: agent
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 502
+        assert "boom" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_list_memories_filters_by_topic() -> None:
     memory = _memory_mock()
     app.dependency_overrides[get_memory_service] = lambda: memory
@@ -123,6 +137,19 @@ def test_topics_returns_distinct_list() -> None:
         resp = client.get("/api/topics")
         assert resp.status_code == 200, resp.text
         assert resp.json() == ["fastapi", "react"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_topics_forwards_limit() -> None:
+    """O `limit` do GET /api/topics é repassado ao serviço (antes era ignorado)."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/topics?limit=10")
+        assert resp.status_code == 200
+        assert memory.list_topics.await_args.kwargs["limit"] == 10
     finally:
         app.dependency_overrides.clear()
 

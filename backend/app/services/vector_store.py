@@ -116,11 +116,15 @@ class VectorStore:
             ),
         )
 
-    async def list_topics(self) -> list[str]:
-        """Retorna os `topic` distintos presentes na collection."""
+    async def list_topics(self, limit: int = 50) -> list[str]:
+        """Retorna até `limit` tópicos distintos presentes na collection.
+
+        Para o scroll assim que o limite é atingido (coleção pode ser grande;
+        antes fazia scan da coleção inteira, resposta/scan runaway).
+        """
         topics: set[str] = set()
         offset: types.PointId | None = None
-        while True:
+        while len(topics) < limit:
             records, next_page = await self._client.scroll(
                 collection_name=self._collection,
                 scroll_filter=None,
@@ -136,7 +140,7 @@ class VectorStore:
             if next_page is None or not records:
                 break
             offset = next_page
-        return sorted(topics)
+        return sorted(topics)[:limit]
 
     async def list(
         self, limit: int, topic: str | None = None, session_id: str | None = None
