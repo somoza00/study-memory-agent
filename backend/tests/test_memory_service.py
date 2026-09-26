@@ -85,6 +85,17 @@ async def test_metadata_rejects_oversized_topic() -> None:
         )
 
 
+async def test_metadata_rejects_blank_topic() -> None:
+    """Metadata (topic/source/session_id) só com espaços é rejeitada (via do agente)."""
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        MemoryMetadata(
+            topic="  ", source="livro", date=date(2026, 8, 25), session_id="s1"
+        )
+
+
 async def test_recall_returns_scored_memories() -> None:
     service, embeddings, store = make_service()
     store.search.return_value = [

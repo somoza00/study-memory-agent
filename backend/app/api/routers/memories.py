@@ -8,6 +8,7 @@ Expõe:
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -17,6 +18,7 @@ from app.api.deps import get_memory_service
 from app.models.memory import MemoryCreate, MemoryCreated, MemoryMetadata, StoredMemory
 from app.services.memory_service import MemoryService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["memories"])
 
 
@@ -40,6 +42,11 @@ async def create_memory(
         raise HTTPException(
             status_code=502, detail=f"Falha ao gerar embedding: {exc}"
         ) from exc
+    except Exception as exc:
+        # Espelha o /api/chat: erro não-OpenAI também vira 502 estruturado,
+        # nunca 500 cru (regra do AGENTS.md).
+        logger.exception("POST /api/memories falhou com erro não-OpenAI")
+        raise HTTPException(status_code=502, detail=f"Erro interno: {exc}") from exc
     return MemoryCreated(id=memory_id, persisted=persisted, metadata=metadata)
 
 

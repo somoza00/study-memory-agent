@@ -293,6 +293,22 @@ def test_create_memory_returns_502_when_embedding_fails() -> None:
         app.dependency_overrides.clear()
 
 
+def test_create_memory_returns_502_on_non_openai_failure() -> None:
+    """Erro não-OpenAI no POST /api/memories vira 502, não 500 cru (nunca 500)."""
+    memory = AsyncMock()
+    memory.store.side_effect = IndexError("embedding vazio")
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "x", "topic": "t", "source": "s", "session_id": "s1"},
+        )
+        assert resp.status_code == 502
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_list_memories_rejects_oversized_topic() -> None:
     """`topic` acima de 120 no filtro (GET) é rejeitado (422), como `session_id`."""
     memory = _memory_mock()
