@@ -19,6 +19,14 @@ class MemoryMetadata(BaseModel):
     date: date_
     session_id: str = Field(..., max_length=200)
 
+    @field_validator("topic", "source", "session_id")
+    @classmethod
+    def _reject_blank_metadata(cls, value: str) -> str:
+        """Metadata (topic/source/session_id) só com espaços polui filtros; rejeita."""
+        if not value.strip():
+            raise ValueError("não pode conter apenas espaços")
+        return value
+
 
 class MemoryResult(BaseModel):
     """Uma memória recuperada via recall, com o score de similaridade."""
