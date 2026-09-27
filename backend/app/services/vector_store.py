@@ -68,14 +68,20 @@ class VectorStore:
         limit: int,
         min_score: float,
         topic: str | None = None,
+        session_id: str | None = None,
     ) -> list[ScoredPoint]:
-        """Retorna os pontos mais similares a `vector`, opcionalmente filtrados por `topic`."""
+        """Retorna os pontos mais similares a `vector`, filtrados por `topic` e/ou `session_id`."""
         await self._ensure_collection()
-        query_filter: Filter | None = None
+        conditions: list[FieldCondition] = []
         if topic is not None:
-            query_filter = Filter(
-                must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+            conditions.append(FieldCondition(key="topic", match=MatchValue(value=topic)))
+        if session_id is not None:
+            conditions.append(
+                FieldCondition(key="session_id", match=MatchValue(value=session_id))
             )
+        query_filter: Filter | None = (
+            Filter(must=conditions) if conditions else None  # type: ignore[arg-type]
+        )
         response = await self._client.query_points(
             collection_name=self._collection,
             query=vector,
