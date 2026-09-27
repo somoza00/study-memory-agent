@@ -118,7 +118,9 @@ class AgentService:
         ) -> list[dict[str, object]]:
             """Busca memórias relacionadas a `query`, filtradas por `topic` se informado."""
             limit = max(1, min(int(limit), 20))  # teto p/ controlar tokens do recall
-            results = await ctx.deps.memory.recall(query, limit, min_score, topic)
+            results = await ctx.deps.memory.recall(
+                query, limit, min_score, topic, session_id=ctx.deps.session_id
+            )
             return [r.model_dump(mode="json") for r in results]
 
         @agent.tool
@@ -130,7 +132,9 @@ class AgentService:
 
     async def chat(self, message: str, session_id: str, topic: str | None = None) -> ChatResult:
         """Recupera memórias (opcionalmente de um `topic`) e gera a resposta."""
-        memories = await self._memory.recall(message, RECALL_LIMIT, RECALL_MIN_SCORE, topic)
+        memories = await self._memory.recall(
+            message, RECALL_LIMIT, RECALL_MIN_SCORE, topic, session_id=session_id
+        )
         deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
         result = await self._agent.run(message, deps=deps)
         return ChatResult(response=str(result.output), memories_used=len(memories))
@@ -144,7 +148,9 @@ class AgentService:
         comportamento de `chat`) e emite `StreamEvent` de tipo `token` a cada
         delta de texto, terminando com `done` + `memories_used`.
         """
-        memories = await self._memory.recall(message, RECALL_LIMIT, RECALL_MIN_SCORE, topic)
+        memories = await self._memory.recall(
+            message, RECALL_LIMIT, RECALL_MIN_SCORE, topic, session_id=session_id
+        )
         deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
         async with self._agent.run_stream(message, deps=deps) as agent_run:
             async for delta in agent_run.stream_text(delta=True):

@@ -58,8 +58,9 @@ class MemoryService:
         limit: int,
         min_score: float,
         topic: str | None = None,
+        session_id: str | None = None,
     ) -> list[MemoryResult]:
-        """Busca memórias relacionadas a `query`, opcionalmente filtradas por `topic`.
+        """Busca memórias relacionadas a `query`, filtradas por `topic` e/ou `session_id`.
 
         Retorna lista vazia se o Qdrant estiver indisponível.
         """
@@ -69,8 +70,16 @@ class MemoryService:
         min_score = max(0.0, min(min_score, 1.0))
         vector = await self._embeddings.embed(query)
         try:
-            points = await self._store.search(vector, limit, min_score, topic)
-            return [_to_memory_result(point) for point in points]
+            points = await self._store.search(
+                vector, limit, min_score, topic, session_id=session_id
+            )
+            out: list[MemoryResult] = []
+            for point in points:
+                try:
+                    out.append(_to_memory_result(point))
+                except Exception:
+                    logger.warning("memória %s ignorada no recall: payload malformado", point.id)
+            return out
         except Exception:
             logger.warning("Qdrant indisponível ou payload inválido: recall retornando vazio")
             return []
@@ -95,7 +104,13 @@ class MemoryService:
         """
         try:
             records = await self._store.list(limit, topic, session_id)
-            return [_to_stored_memory(record) for record in records]
+            out: list[StoredMemory] = []
+            for record in records:
+                try:
+                    out.append(_to_stored_memory(record))
+                except Exception:
+                    logger.warning("memória %s ignorada: payload malformado", record.id)
+            return out
         except Exception:
             logger.warning("Qdrant indisponível ou payload inválido: list retornando vazio")
             return []

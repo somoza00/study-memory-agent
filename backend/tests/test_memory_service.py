@@ -116,7 +116,7 @@ async def test_recall_returns_scored_memories() -> None:
     results = await service.recall("como funciona DI no FastAPI?", limit=5, min_score=0.5)
 
     embeddings.embed.assert_awaited_once_with("como funciona DI no FastAPI?")
-    store.search.assert_awaited_once_with(VECTOR, 5, 0.5, None)
+    store.search.assert_awaited_once_with(VECTOR, 5, 0.5, None, session_id=None)
     assert len(results) == 1
     assert results[0].id == "abc"
     assert results[0].score == 0.87
@@ -267,6 +267,28 @@ async def test_list_degrades_to_empty_on_malformed_payload() -> None:
     store.list.return_value = [Record(id="abc", payload={"text": "sobre DI"})]
 
     assert await service.list() == []
+
+
+async def test_list_skips_corrupt_record_but_keeps_valid() -> None:
+    """1 registro corrompido não esconde os válidos (skip por registro, não aborta o lote)."""
+    service, _embeddings, store = make_service()
+    store.list.return_value = [
+        Record(id="ruim", payload={"text": "corrompido"}),
+        Record(
+            id="bom",
+            payload={
+                "text": "sobre DI",
+                "topic": "fastapi",
+                "source": "livro",
+                "date": "2026-08-25",
+                "session_id": "s1",
+            },
+        ),
+    ]
+
+    result = await service.list()
+
+    assert [m.id for m in result] == ["bom"]
 
 
 async def test_get_returns_none_on_malformed_payload() -> None:

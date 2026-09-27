@@ -37,7 +37,7 @@ async def test_chat_recalls_memories_and_returns_response() -> None:
     assert isinstance(result, ChatResult)
     assert result.response == "Resposta do agente."
     assert result.memories_used == 1
-    memory.recall.assert_awaited_once_with("o que é DI no FastAPI?", 5, 0.7, None)
+    memory.recall.assert_awaited_once_with("o que é DI no FastAPI?", 5, 0.7, None, session_id="s1")
     fake_agent.run.assert_awaited_once()
 
 
@@ -69,4 +69,4 @@ async def test_chat_forwards_topic_filter_to_recall() -> None:
         service = AgentService(memory_service=memory)  # type: ignore[arg-type]
         await service.chat("sobre vite", session_id="s3", topic="react")
 
-    memory.recall.assert_awaited_once_with("sobre vite", 5, 0.7, "react")
+    memory.recall.assert_awaited_once_with("sobre vite", 5, 0.7, "react", session_id="s3")
