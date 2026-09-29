@@ -115,25 +115,32 @@ class MemoryService:
             logger.warning("Qdrant indisponível ou payload inválido: list retornando vazio")
             return []
 
-    async def delete(self, memory_id: str) -> None:
+    async def delete(self, memory_id: str) -> bool:
         """Remove uma memória pelo id.
 
-        Não levanta exceção se o Qdrant estiver indisponível.
+        Retorna `True` se o armazenamento confirmou a remoção; `False` se o
+        Qdrant estava indisponível (a remoção pode não ter ocorrido — o router
+        espelha o desfecho em 503, como o `store` faz `(id, persisted)`).
         """
         try:
             await self._store.delete(memory_id)
         except Exception:
             logger.warning("Qdrant indisponível: memória %s não foi removida", memory_id)
+            return False
+        return True
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(self, session_id: str) -> bool:
         """Remove todas as memórias de uma sessão de conversa.
 
-        Não levanta exceção se o Qdrant estiver indisponível.
+        Retorna `True` se o armazenamento confirmou a remoção; `False` se o
+        Qdrant estava indisponível (o router responde 503 nesse caso).
         """
         try:
             await self._store.delete_by_session(session_id)
         except Exception:
             logger.warning("Qdrant indisponível: delete_session (%s) não executado", session_id)
+            return False
+        return True
 
     async def get(self, memory_id: str) -> StoredMemory | None:
         """Retorna uma memória pelo id, ou `None` se não existir.

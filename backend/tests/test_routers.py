@@ -40,7 +40,8 @@ def _memory_mock() -> AsyncMock:
     memory = AsyncMock()
     memory.list.return_value = [StoredMemory(id="abc", text="texto", metadata=metadata)]
     memory.list_topics.return_value = ["fastapi", "react"]
-    memory.delete.return_value = None
+    memory.delete.return_value = True
+    memory.delete_session.return_value = True
     return memory
 
 
@@ -204,11 +205,56 @@ def test_get_memory_returns_memory_by_id() -> None:
 def test_get_memory_404_when_missing() -> None:
     memory = AsyncMock()
     memory.get.return_value = None
+    store = AsyncMock()
+    store.ping.return_value = True
     app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: store
     try:
         client = TestClient(app)
         resp = client.get("/api/memories/xyz")
         assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_memory_503_when_storage_unavailable() -> None:
+    """Qdrant offline + memória não encontrada ⇒ 503, não 404 (não mente "apagada")."""
+    memory = AsyncMock()
+    memory.get.return_value = None
+    store = AsyncMock()
+    store.ping.return_value = False
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/xyz")
+        assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_memory_503_when_storage_unavailable() -> None:
+    """Qdrant offline ⇒ DELETE não mente 204 (a memória pode ter sobrevivido)."""
+    memory = _memory_mock()
+    memory.delete.return_value = False
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.delete("/api/memories/abc")
+        assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_session_503_when_storage_unavailable() -> None:
+    """Qdrant offline ⇒ DELETE /sessions não mente 204."""
+    memory = _memory_mock()
+    memory.delete_session.return_value = False
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.delete("/api/sessions/sess-1")
+        assert resp.status_code == 503
     finally:
         app.dependency_overrides.clear()
 

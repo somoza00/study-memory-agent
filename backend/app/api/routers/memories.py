@@ -14,9 +14,10 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from openai import OpenAIError
 
-from app.api.deps import get_memory_service
+from app.api.deps import get_memory_service, get_vector_store
 from app.models.memory import MemoryCreate, MemoryCreated, MemoryMetadata, StoredMemory
 from app.services.memory_service import MemoryService
+from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["memories"])
@@ -79,8 +80,12 @@ async def delete_memory(
     memory_id: str,
     memory: MemoryService = Depends(get_memory_service),
 ) -> Response:
-    """Remove uma memória pelo id."""
-    await memory.delete(memory_id)
+    """Remove uma memória pelo id; 503 se o armazenamento não confirmou a remoção."""
+    if not await memory.delete(memory_id):
+        raise HTTPException(
+            status_code=503,
+            detail="armazenamento indisponível: não foi possível remover a memória",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -88,10 +93,18 @@ async def delete_memory(
 async def get_memory(
     memory_id: str,
     memory: MemoryService = Depends(get_memory_service),
+    store: VectorStore = Depends(get_vector_store),
 ) -> StoredMemory:
-    """Retorna uma memória pelo id; 404 se não existir."""
+    """Retorna uma memória pelo id; 404 se não existir; 503 se o Qdrant estiver
+    offline e não der para verificar (não mente "não encontrada" — um 404 falso
+    numa indisponibilidade transitória faria o cliente recriar e duplicar)."""
     found = await memory.get(memory_id)
     if found is None:
+        if not await store.ping():
+            raise HTTPException(
+                status_code=503,
+                detail="armazenamento de memória indisponível: não é possível verificar a memória",
+            )
         raise HTTPException(status_code=404, detail="memória não encontrada")
     return found
 
@@ -101,6 +114,10 @@ async def delete_session(
     session_id: str,
     memory: MemoryService = Depends(get_memory_service),
 ) -> Response:
-    """Remove todas as memórias de uma sessão de conversa."""
-    await memory.delete_session(session_id)
+    """Remove todas as memórias de uma sessão de conversa; 503 se não confirmado."""
+    if not await memory.delete_session(session_id):
+        raise HTTPException(
+            status_code=503,
+            detail="armazenamento indisponível: não foi possível remover a sessão",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
