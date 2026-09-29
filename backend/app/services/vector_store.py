@@ -54,13 +54,24 @@ class VectorStore:
             )
         self._collection_ready = True
 
+    def _invalidate_collection(self) -> None:
+        """Zera a flag de collection pronta: a próxima chamada re-verifica e
+        recria a collection caso ela tenha sido apagada externamente (wipe/reset
+        do Qdrant) ou esteja em indisponibilidade transitória. Self-healing —
+        custo só no caminho de erro, não em toda op OK."""
+        self._collection_ready = False
+
     async def upsert(self, id: str, vector: list[float], payload: dict[str, object]) -> None:
         """Insere ou atualiza um ponto na collection."""
-        await self._ensure_collection()
-        await self._client.upsert(
-            collection_name=self._collection,
-            points=[PointStruct(id=id, vector=vector, payload=payload)],
-        )
+        try:
+            await self._ensure_collection()
+            await self._client.upsert(
+                collection_name=self._collection,
+                points=[PointStruct(id=id, vector=vector, payload=payload)],
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
 
     async def search(
         self,
@@ -82,45 +93,62 @@ class VectorStore:
         query_filter: Filter | None = (
             Filter(must=conditions) if conditions else None  # type: ignore[arg-type]
         )
-        response = await self._client.query_points(
-            collection_name=self._collection,
-            query=vector,
-            query_filter=query_filter,
-            limit=limit,
-            score_threshold=min_score,
-        )
+        try:
+            await self._ensure_collection()
+            response = await self._client.query_points(
+                collection_name=self._collection,
+                query=vector,
+                query_filter=query_filter,
+                limit=limit,
+                score_threshold=min_score,
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
         return response.points
 
     async def delete(self, id: str) -> None:
         """Remove um ponto pelo id."""
-        await self._ensure_collection()
-        await self._client.delete(
-            collection_name=self._collection,
-            points_selector=PointIdsList(points=[id]),
-        )
+        try:
+            await self._ensure_collection()
+            await self._client.delete(
+                collection_name=self._collection,
+                points_selector=PointIdsList(points=[id]),
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
 
     async def get(self, id: str) -> Record | None:
         """Retorna um ponto pelo id, ou `None` se não existir."""
-        await self._ensure_collection()
-        points = await self._client.retrieve(
-            collection_name=self._collection,
-            ids=[id],
-            with_payload=True,
-            with_vectors=False,
-        )
+        try:
+            await self._ensure_collection()
+            points = await self._client.retrieve(
+                collection_name=self._collection,
+                ids=[id],
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
         return points[0] if points else None
 
     async def delete_by_session(self, session_id: str) -> None:
         """Remove todos os pontos cujo payload tem `session_id` (filtro)."""
-        await self._ensure_collection()
-        await self._client.delete(
-            collection_name=self._collection,
-            points_selector=FilterSelector(
-                filter=Filter(
-                    must=[FieldCondition(key="session_id", match=MatchValue(value=session_id))]
-                )
-            ),
-        )
+        try:
+            await self._ensure_collection()
+            await self._client.delete(
+                collection_name=self._collection,
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must=[FieldCondition(key="session_id", match=MatchValue(value=session_id))]
+                    )
+                ),
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
 
     async def list_topics(self, limit: int = 50) -> list[str]:
         """Retorna até `limit` tópicos distintos presentes na collection.
@@ -130,29 +158,33 @@ class VectorStore:
         """
         topics: set[str] = set()
         offset: types.PointId | None = None
-        while len(topics) < limit:
-            records, next_page = await self._client.scroll(
-                collection_name=self._collection,
-                scroll_filter=None,
-                limit=100,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
-            )
-            for record in records:
-                topic = (record.payload or {}).get("topic")
-                if topic:
-                    topics.add(str(topic))
-            if next_page is None or not records:
-                break
-            offset = next_page
+        try:
+            await self._ensure_collection()
+            while len(topics) < limit:
+                records, next_page = await self._client.scroll(
+                    collection_name=self._collection,
+                    scroll_filter=None,
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for record in records:
+                    topic = (record.payload or {}).get("topic")
+                    if topic:
+                        topics.add(str(topic))
+                if next_page is None or not records:
+                    break
+                offset = next_page
+        except Exception:
+            self._invalidate_collection()
+            raise
         return sorted(topics)[:limit]
 
     async def list(
         self, limit: int, topic: str | None = None, session_id: str | None = None
     ) -> list[Record]:
         """Lista memórias, filtradas por `topic` e `session_id`, limitadas a `limit`."""
-        await self._ensure_collection()
         conditions = []
         if topic is not None:
             conditions.append(FieldCondition(key="topic", match=MatchValue(value=topic)))
@@ -165,13 +197,18 @@ class VectorStore:
         scroll_filter: Filter | None = (
             Filter(must=conditions) if conditions else None  # type: ignore[arg-type]
         )
-        records, _next_page = await self._client.scroll(
-            collection_name=self._collection,
-            scroll_filter=scroll_filter,
-            limit=limit,
-            with_payload=True,
-            with_vectors=False,
-        )
+        try:
+            await self._ensure_collection()
+            records, _next_page = await self._client.scroll(
+                collection_name=self._collection,
+                scroll_filter=scroll_filter,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
         return records
 
     async def ping(self) -> bool:
