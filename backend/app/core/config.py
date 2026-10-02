@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     qdrant_collection: str = "study_memories"
     embedding_model: str = "text-embedding-3-small"
     agent_model: str = "gpt-4o-mini"
+    # Base URL de um endpoint OpenAI-compatível para o modelo do agente E os
+    # embeddings (ex.: servidor local/self-hosted — Ollama, vLLM, LiteLLM).
+    # Vazio = endpoint padrão da OpenAI (comportamento atual). Desacopla o
+    # projeto de um provedor específico: sem isto, embeddings e agente ficam
+    # presos à OpenAI e o app não roda sem uma chave paga.
+    openai_base_url: str | None = None
     # Chave de autenticação da própria API (header X-API-Key) para as rotas /api.
     # None = auth desabilitada (dev). Em produção, defina para fechar a API.
     api_key: str | None = None

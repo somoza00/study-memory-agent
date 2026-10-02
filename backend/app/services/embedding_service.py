@@ -28,7 +28,12 @@ class EmbeddingService:
         credencial válida.
         """
         if self._client is None:
-            self._client = AsyncOpenAI(api_key=self._config.openai_api_key)
+            self._client = AsyncOpenAI(
+                api_key=self._config.openai_api_key,
+                # None preserva o endpoint padrão da OpenAI; um valor aponta
+                # para qualquer servidor de embeddings OpenAI-compatível.
+                base_url=self._config.openai_base_url,
+            )
         return self._client
 
     async def embed(self, text: str) -> list[float]:

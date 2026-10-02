@@ -73,7 +73,12 @@ class AgentService:
 
     def _build_agent(self) -> Agent[AgentDeps, str]:
         """Constrói o agente, registra tools/instruções e ativa o OTEL nativo."""
-        provider = OpenAIProvider(api_key=self._config.openai_api_key)
+        provider = OpenAIProvider(
+            api_key=self._config.openai_api_key,
+            # None preserva o endpoint padrão da OpenAI; um valor aponta o
+            # agente para qualquer endpoint OpenAI-compatível (local/self-hosted).
+            base_url=self._config.openai_base_url,
+        )
         model = OpenAIChatModel(model_name=self._config.agent_model, provider=provider)
         agent = Agent[AgentDeps, str](
             model,

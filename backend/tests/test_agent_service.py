@@ -70,3 +70,23 @@ async def test_chat_forwards_topic_filter_to_recall() -> None:
         await service.chat("sobre vite", session_id="s3", topic="react")
 
     memory.recall.assert_awaited_once_with("sobre vite", 5, 0.7, "react", session_id="s3")
+
+
+def test_agent_uses_configured_openai_base_url() -> None:
+    """`OPENAI_BASE_URL` aponta o agente para um endpoint OpenAI-compatível."""
+    from app.core.config import Settings
+
+    cfg = Settings(openai_api_key="x", openai_base_url="http://localhost:11434/v1")
+    service = AgentService(memory_service=AsyncMock(), config=cfg)
+    base_url = str(service._agent.model.provider.client.base_url)  # type: ignore[attr-defined]
+    assert base_url.startswith("http://localhost:11434/v1")
+
+
+def test_agent_defaults_to_openai_base_url_when_unset() -> None:
+    """Sem OPENAI_BASE_URL, o agente usa o endpoint padrão da OpenAI (sem regressão)."""
+    from app.core.config import Settings
+
+    cfg = Settings(openai_api_key="x")
+    service = AgentService(memory_service=AsyncMock(), config=cfg)
+    base_url = str(service._agent.model.provider.client.base_url)  # type: ignore[attr-defined]
+    assert "api.openai.com" in base_url
