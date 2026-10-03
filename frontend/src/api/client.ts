@@ -19,12 +19,19 @@ export async function streamChat(
   message: string,
   sessionId: string,
   onEvent: (event: StreamEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  topic?: string | null
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    // `topic` opcional: quando a sidebar tem um tópico ativo, filtra o recall
+    // de memória no backend (antes a seleção era ignorada por completo).
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      ...(topic ? { topic } : {}),
+    }),
     signal,
   });
 
