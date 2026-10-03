@@ -69,7 +69,8 @@ export default function App() {
               setError(event.detail ?? "Assistente indisponível no momento.");
             }
           },
-          controller.signal
+          controller.signal,
+          activeTopic
         );
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -81,7 +82,7 @@ export default function App() {
         streamingIdRef.current = null;
       }
     },
-    [sessionId]
+    [sessionId, activeTopic]
   );
 
   return (
