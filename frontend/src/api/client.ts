@@ -8,6 +8,18 @@ export async function getTopics(): Promise<string[]> {
   return (await res.json()) as string[];
 }
 
+export interface TopicCount {
+  topic: string;
+  count: number;
+}
+
+/** Contagem de memórias por tópico (fonte real no backend, não heurística do FE). */
+export async function getTopicCounts(): Promise<TopicCount[]> {
+  const res = await fetch(`${API_BASE}/topics/counts`);
+  if (!res.ok) return [];
+  return (await res.json()) as TopicCount[];
+}
+
 /**
  * Consome o SSE de `POST /api/chat/stream` via fetch + ReadableStream e
  * chama `onEvent` para cada evento `data:` recebido.

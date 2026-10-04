@@ -15,7 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from openai import OpenAIError
 
 from app.api.deps import get_memory_service, get_vector_store
-from app.models.memory import MemoryCreate, MemoryCreated, MemoryMetadata, StoredMemory
+from app.models.memory import (
+    MemoryCreate,
+    MemoryCreated,
+    MemoryMetadata,
+    StoredMemory,
+    TopicCount,
+)
 from app.services.memory_service import MemoryService
 from app.services.vector_store import VectorStore
 
@@ -73,6 +79,15 @@ async def list_topics(
 ) -> list[str]:
     """Lista os tópicos distintos das memórias existentes (limitado a `limit`)."""
     return await memory.list_topics(limit=limit)
+
+
+@router.get("/topics/counts", response_model=list[TopicCount])
+async def list_topic_counts(
+    limit: int = Query(default=50, ge=1, le=200, description="Quantidade máxima de tópicos."),
+    memory: MemoryService = Depends(get_memory_service),
+) -> list[TopicCount]:
+    """Lista os tópicos com a contagem de memórias de cada um (para a sidebar)."""
+    return await memory.topic_counts(limit=limit)
 
 
 @router.delete("/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)

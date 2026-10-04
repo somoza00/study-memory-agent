@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from qdrant_client.models import Record, ScoredPoint
 
-from app.models.memory import MemoryMetadata, MemoryResult, StoredMemory
+from app.models.memory import MemoryMetadata, MemoryResult, StoredMemory, TopicCount
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store import VectorStore
 
@@ -90,6 +90,23 @@ class MemoryService:
             return await self._store.list_topics(limit)
         except Exception:
             logger.warning("Qdrant indisponível: list_topics retornando vazio")
+            return []
+
+    async def topic_counts(self, limit: int = 50) -> list[TopicCount]:
+        """Lista tópicos distintos com a contagem de memórias de cada um.
+
+        Lista vazia se o Qdrant estiver indisponível (graceful degradation).
+        """
+        try:
+            topics = await self._store.list_topics(limit)
+            counts: list[TopicCount] = []
+            for topic in topics:
+                counts.append(
+                    TopicCount(topic=topic, count=await self._store.count_by_topic(topic))
+                )
+            return counts
+        except Exception:
+            logger.warning("Qdrant indisponível: topic_counts retornando vazio")
             return []
 
     async def list(

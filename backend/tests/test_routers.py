@@ -155,6 +155,28 @@ def test_topics_forwards_limit() -> None:
         app.dependency_overrides.clear()
 
 
+def test_topic_counts_returns_counts() -> None:
+    """GET /api/topics/counts devolve tópicos com a contagem real de memórias."""
+    from app.models.memory import TopicCount
+
+    memory = _memory_mock()
+    memory.topic_counts.return_value = [
+        TopicCount(topic="fastapi", count=3),
+        TopicCount(topic="react", count=1),
+    ]
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/topics/counts")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == [
+            {"topic": "fastapi", "count": 3},
+            {"topic": "react", "count": 1},
+        ]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_chat_stream_returns_sse_events() -> None:
     app.dependency_overrides[get_agent_service] = lambda: _FakeStreamAgent()
     try:
