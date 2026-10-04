@@ -76,3 +76,10 @@ class MemoryCreated(BaseModel):
     id: str
     persisted: bool = Field(..., description="Se o armazenamento vetorial persistiu de fato.")
     metadata: MemoryMetadata
+
+
+class TopicCount(BaseModel):
+    """Um tópico e quantas memórias persistidas ele tem (para a sidebar)."""
+
+    topic: str
+    count: int

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getTopics, streamChat } from "./api/client";
+import { getTopicCounts, streamChat } from "./api/client";
 import { ChatInput } from "./components/ChatInput";
 import { ChatMessage } from "./components/ChatMessage";
 import { TopicsSidebar } from "./components/TopicsSidebar";
@@ -9,7 +9,7 @@ export default function App() {
   const sessionId = useMemo(() => crypto.randomUUID(), []);
 
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
-  const [topics, setTopics] = useState<string[]>([]);
+  const [topicCounts, setTopicCounts] = useState<Record<string, number>>({});
   const [activeTopic, setActiveTopic] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,25 +17,23 @@ export default function App() {
   const streamingIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    getTopics()
-      .then(setTopics)
-      .catch(() => setTopics([]));
+  // Contagem real de memórias por tópico, vinda do backend (antes o FE
+  // "adivinhava" contando mensagens que citavam o tópico — número enganoso).
+  const refreshTopics = useCallback(() => {
+    getTopicCounts()
+      .then((rows) => setTopicCounts(Object.fromEntries(rows.map((r) => [r.topic, r.count]))))
+      .catch(() => setTopicCounts({}));
   }, []);
+
+  useEffect(() => {
+    refreshTopics();
+  }, [refreshTopics]);
+
+  const topics = useMemo(() => Object.keys(topicCounts), [topicCounts]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, error]);
-
-  const topicCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const topic of topics) {
-      counts[topic] = messages.filter(
-        (m) => m.role === "assistant" && m.content.toLowerCase().includes(topic.toLowerCase())
-      ).length;
-    }
-    return counts;
-  }, [topics, messages]);
 
   const send = useCallback(
     async (text: string) => {
@@ -80,9 +78,10 @@ export default function App() {
       } finally {
         setStreaming(false);
         streamingIdRef.current = null;
+        refreshTopics(); // a conversa pode ter gravado memória/tópico novo
       }
     },
-    [sessionId, activeTopic]
+    [sessionId, activeTopic, refreshTopics]
   );
 
   return (

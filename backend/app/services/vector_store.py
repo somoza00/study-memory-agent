@@ -181,6 +181,22 @@ class VectorStore:
             raise
         return sorted(topics)[:limit]
 
+    async def count_by_topic(self, topic: str) -> int:
+        """Conta as memórias persistidas de um tópico (exato). Self-heal em falha."""
+        try:
+            await self._ensure_collection()
+            result = await self._client.count(
+                collection_name=self._collection,
+                count_filter=Filter(
+                    must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+                ),
+                exact=True,
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
+        return int(result.count)
+
     async def list(
         self, limit: int, topic: str | None = None, session_id: str | None = None
     ) -> list[Record]:
