@@ -177,6 +177,32 @@ def test_topic_counts_returns_counts() -> None:
         app.dependency_overrides.clear()
 
 
+def test_search_memories_exposes_recall() -> None:
+    """GET /api/memories/search expõe o recall semântico (usado pelo agente)."""
+    from app.models.memory import MemoryResult
+
+    memory = _memory_mock()
+    metadata = MemoryMetadata(
+        topic="fastapi", source="livro", date=date(2026, 8, 25), session_id="s1"
+    )
+    memory.recall.return_value = [
+        MemoryResult(id="abc", text="sobre DI", score=0.9, metadata=metadata)
+    ]
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get(
+            "/api/memories/search", params={"q": "DI", "limit": 3, "topic": "fastapi"}
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body[0]["id"] == "abc"
+        assert body[0]["score"] == 0.9
+        memory.recall.assert_awaited_once_with("DI", 3, 0.7, "fastapi", session_id=None)
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_chat_stream_returns_sse_events() -> None:
     app.dependency_overrides[get_agent_service] = lambda: _FakeStreamAgent()
     try:

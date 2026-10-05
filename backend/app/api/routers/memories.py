@@ -19,6 +19,7 @@ from app.models.memory import (
     MemoryCreate,
     MemoryCreated,
     MemoryMetadata,
+    MemoryResult,
     StoredMemory,
     TopicCount,
 )
@@ -70,6 +71,22 @@ async def list_memories(
 ) -> list[StoredMemory]:
     """Lista memórias persistidas, opcionalmente filtradas por `topic` e/ou `session_id`."""
     return await memory.list(topic=topic, limit=limit, session_id=session_id)
+
+
+@router.get("/memories/search", response_model=list[MemoryResult])
+async def search_memories(
+    q: str = Query(..., min_length=1, max_length=2000, description="Consulta textual."),
+    limit: int = Query(default=10, ge=1, le=50, description="Máximo de memórias retornadas."),
+    min_score: float = Query(default=0.7, ge=0.0, le=1.0, description="Similaridade mínima (0-1)."),
+    topic: str | None = Query(default=None, max_length=120, description="Filtra por tópico."),
+    session_id: str | None = Query(default=None, max_length=200, description="Filtra por sessão."),
+    memory: MemoryService = Depends(get_memory_service),
+) -> list[MemoryResult]:
+    """Busca semântica nas memórias — expõe o `recall` (usado pelo agente) via HTTP.
+
+    Declarada ANTES de `/memories/{memory_id}` para não ser capturada como id.
+    """
+    return await memory.recall(q, limit, min_score, topic, session_id=session_id)
 
 
 @router.get("/topics", response_model=list[str])
