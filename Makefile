@@ -1,4 +1,4 @@
-.PHONY: up down logs build config venv lint test frontend-build
+.PHONY: up down logs build config venv lint test frontend-build frontend-test
 
 up:
 	docker compose up -d --build
@@ -21,3 +21,5 @@ test:
 	cd backend && .venv/bin/ruff check app && .venv/bin/mypy app && .venv/bin/pytest
 frontend-build:
 	cd frontend && npm install && npm run build
+frontend-test:
+	cd frontend && npm test
