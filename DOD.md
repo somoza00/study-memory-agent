@@ -35,8 +35,9 @@ Pydantic AI, SSE e observabilidade Langfuse.
 - [x] `OPENAI_BASE_URL` configurável (agente + embeddings) — roda em endpoint
       OpenAI-compatível (Ollama/vLLM/LiteLLM), não só na OpenAI.
 - [x] `VectorStore` self-heal (recria a collection após wipe/falha).
-- [ ] Cobertura de testes de frontend (hoje só backend + `tsc`).
-- [ ] Reduzir a pegada do compose (hoje ~22 serviços, a maioria Langfuse).
+- [x] Cobertura de testes de frontend (Vitest + Testing Library; `npm test`).
+- [x] Stack Langfuse (postgres/redis/langfuse) atrás do profile `observability`
+      do compose — `docker compose up` sobe só qdrant+backend+frontend.
 
 🟢 **Nice-to-have**
 - [ ] Autenticação de usuário / multi-tenant (hoje `X-API-Key` compartilhada).

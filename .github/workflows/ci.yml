@@ -32,7 +32,7 @@ jobs:
         run: .venv/bin/pytest
 
   frontend:
-    name: Frontend (build)
+    name: Frontend (build · test)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,3 +48,5 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Tests
+        run: npm test

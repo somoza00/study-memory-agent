@@ -11,7 +11,7 @@ relevante automaticamente.
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS
 - **Observabilidade**: Langfuse via OTEL nativo do Pydantic AI
 - **Orquestração**: Docker Compose
-- **Qualidade**: pytest · ruff · mypy (backend) · `tsc` (frontend)
+- **Qualidade**: pytest · ruff · mypy (backend) · `tsc` + Vitest (frontend)
 
 ## Arquitetura de memória
 - `store(text, metadata)` → embedding → Qdrant
@@ -32,7 +32,11 @@ docker compose up -d --build
 - Frontend: http://localhost:5174
 - Backend API: http://localhost:8001 (health em `/health`)
 - Qdrant dashboard: http://localhost:6333/dashboard
-- Langfuse: http://localhost:3000
+
+> **Langfuse (observabilidade) é opcional.** O `docker compose up` sobe só
+> `qdrant` + `backend` + `frontend`. Para o tracing, suba com
+> `docker compose --profile observability up -d` (adiciona `postgres`, `redis`
+> e `langfuse`). Sem o Langfuse o app roda normal — só não exporta traces.
 
 ## Endpoints
 | Método | Rota | Descrição |
@@ -65,7 +69,7 @@ curl -N -X POST http://localhost:8001/api/chat/stream \
 docker compose config -q
 cd backend && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]" && \
   .venv/bin/ruff check app && .venv/bin/mypy app && .venv/bin/pytest
-cd frontend && npm ci && npm run build
+cd frontend && npm ci && npm run build && npm test
 ```
 
 > **Atalhos (Makefile):** `make config` (valida o compose), `make venv` (cria o `.venv` do backend), `make lint` (ruff+mypy), `make test` (ruff+mypy+pytest) e `make frontend-build` (npm ci + build).
