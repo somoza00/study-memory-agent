@@ -26,8 +26,6 @@ from qdrant_client.models import (
 
 from app.core.config import Settings, settings
 
-EMBEDDING_DIMENSIONS = 1536  # text-embedding-3-small
-
 
 class VectorStore:
     """Operações de baixo nível sobre uma collection Qdrant."""
@@ -36,11 +34,13 @@ class VectorStore:
         self,
         client: AsyncQdrantClient | None = None,
         config: Settings = settings,
-        vector_size: int = EMBEDDING_DIMENSIONS,
+        vector_size: int | None = None,
     ) -> None:
         self._client = client or AsyncQdrantClient(host=config.qdrant_host, port=config.qdrant_port)
         self._collection = config.qdrant_collection
-        self._vector_size = vector_size
+        # Dimensão vem da config (`EMBEDDING_DIM`): precisa casar com o modelo de
+        # embedding escolhido, que pode ser local (384) ou OpenAI (1536).
+        self._vector_size = config.embedding_dim if vector_size is None else vector_size
         self._collection_ready = False
 
     async def _ensure_collection(self) -> None:

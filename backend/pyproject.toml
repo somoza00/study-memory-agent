@@ -29,6 +29,12 @@ dev = [
   "ruff>=0.8",
   "mypy>=1.13",
 ]
+# Provedor de embeddings local (ONNX): sem chave e sem rede depois do primeiro
+# download dos pesos. Necessário p/ rodar com provedores de chat sem /embeddings
+# (ex.: OpenCode Zen/Go).
+local-embeddings = [
+  "fastembed>=0.8",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
@@ -60,3 +66,9 @@ strict = true
 # e requires-python); isto só afeta as premissas de sintaxe do mypy.
 python_version = "3.12"
 files = ["app"]
+
+# fastembed é dependência OPCIONAL (extra `local-embeddings`) e importada
+# tardiamente; sem o override, o mypy do gate falha por não achá-la instalada.
+[[tool.mypy.overrides]]
+module = ["fastembed", "fastembed.*"]
+ignore_missing_imports = true

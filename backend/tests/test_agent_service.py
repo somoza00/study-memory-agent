@@ -90,3 +90,28 @@ def test_agent_defaults_to_openai_base_url_when_unset() -> None:
     service = AgentService(memory_service=AsyncMock(), config=cfg)
     base_url = str(service._agent.model.provider.client.base_url)  # type: ignore[attr-defined]
     assert "api.openai.com" in base_url
+
+
+def test_agent_sends_extra_headers_when_configured() -> None:
+    """`OPENAI_EXTRA_HEADERS` chega ao provedor (ex.: `x-opencode-session`)."""
+    from app.core.config import Settings
+
+    cfg = Settings(
+        openai_api_key="x",
+        openai_base_url="https://opencode.ai/zen/go/v1",
+        openai_extra_headers={"x-opencode-session": "study-memory-agent"},
+    )
+    service = AgentService(memory_service=AsyncMock(), config=cfg)
+    client = service._agent.model.provider.client  # type: ignore[attr-defined]
+    assert client.default_headers["x-opencode-session"] == "study-memory-agent"
+    assert str(client.base_url).startswith("https://opencode.ai/zen/go/v1")
+
+
+def test_agent_without_extra_headers_keeps_plain_provider() -> None:
+    """Sem headers extras, o caminho simples (api_key/base_url) é preservado."""
+    from app.core.config import Settings
+
+    cfg = Settings(openai_api_key="x", openai_base_url="https://opencode.ai/zen/go/v1")
+    service = AgentService(memory_service=AsyncMock(), config=cfg)
+    client = service._agent.model.provider.client  # type: ignore[attr-defined]
+    assert "x-opencode-session" not in client.default_headers
