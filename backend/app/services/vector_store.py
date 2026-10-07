@@ -197,6 +197,32 @@ class VectorStore:
             raise
         return int(result.count)
 
+    async def rename_topic(self, topic: str, name: str) -> int:
+        """Renomeia `topic` para `name` em todos os pontos que o usam.
+
+        Devolve quantas memórias foram renomeadas (0 se o tópico não existe).
+        `set_payload` por filtro é uma única chamada no servidor: não há
+        read-modify-write ponto a ponto (e o vetor não é tocado — só o payload).
+        """
+        try:
+            await self._ensure_collection()
+            total = await self.count_by_topic(topic)
+            if total == 0:
+                return 0
+            await self._client.set_payload(
+                collection_name=self._collection,
+                payload={"topic": name},
+                points=FilterSelector(
+                    filter=Filter(
+                        must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+                    )
+                ),
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
+        return total
+
     async def list(
         self, limit: int, topic: str | None = None, session_id: str | None = None
     ) -> list[Record]:

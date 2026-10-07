@@ -10,6 +10,8 @@ sem vetor não há o que persistir ou buscar.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from enum import StrEnum
 from uuid import uuid4
 
 from qdrant_client.models import Record, ScoredPoint
@@ -23,6 +25,23 @@ logger = logging.getLogger(__name__)
 # Limite de caracteres do texto de uma memória: trunca ANTES do embedding para
 # conter o custo (tokens) e evitar vetor diluído por um texto gigante.
 _MAX_TEXT_CHARS = 4000
+
+
+class RenameTopicStatus(StrEnum):
+    """Desfecho de um rename de tópico (o router traduz para o status HTTP)."""
+
+    RENAMED = "renamed"
+    NOT_FOUND = "not_found"  # tópico de origem não existe
+    CONFLICT = "conflict"  # já existe um tópico com o nome desejado
+    UNAVAILABLE = "unavailable"  # armazenamento vetorial fora do ar
+
+
+@dataclass(frozen=True)
+class RenameTopicResult:
+    """Resultado do `rename_topic`: desfecho + quantas memórias mudaram."""
+
+    status: RenameTopicStatus
+    updated: int = 0
 
 
 class MemoryService:
@@ -83,6 +102,32 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível ou payload inválido: recall retornando vazio")
             return []
+
+    async def rename_topic(self, topic: str, name: str) -> RenameTopicResult:
+        """Renomeia um tópico em todas as memórias que o usam.
+
+        Regras (o router espelha cada desfecho num status HTTP):
+        - tópico de origem inexistente → `NOT_FOUND` (não inventa tópico vazio);
+        - nome já usado por outro tópico → `CONFLICT`, em vez de fundir dois
+          tópicos em silêncio (fundir é intenção diferente de renomear);
+        - Qdrant indisponível → `UNAVAILABLE` (503, como `delete`/`delete_session`).
+        """
+        try:
+            # Renomear para o próprio nome é no-op no Qdrant; só confirma que o
+            # tópico existe (e devolve a contagem real, não um write inútil).
+            if topic == name:
+                count = await self._store.count_by_topic(topic)
+                status = RenameTopicStatus.RENAMED if count else RenameTopicStatus.NOT_FOUND
+                return RenameTopicResult(status=status, updated=count)
+            if await self._store.count_by_topic(name):
+                return RenameTopicResult(status=RenameTopicStatus.CONFLICT)
+            updated = await self._store.rename_topic(topic, name)
+        except Exception:
+            logger.warning("Qdrant indisponível: tópico %s não foi renomeado", topic)
+            return RenameTopicResult(status=RenameTopicStatus.UNAVAILABLE)
+        if updated == 0:
+            return RenameTopicResult(status=RenameTopicStatus.NOT_FOUND)
+        return RenameTopicResult(status=RenameTopicStatus.RENAMED, updated=updated)
 
     async def list_topics(self, limit: int = 50) -> list[str]:
         """Lista tópicos distintos (até `limit`); lista vazia se Qdrant fora."""

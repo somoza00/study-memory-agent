@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 from qdrant_client.models import Record, ScoredPoint
 
 from app.models.memory import MemoryMetadata
-from app.services.memory_service import MemoryService
+from app.services.memory_service import MemoryService, RenameTopicStatus
 
 METADATA = MemoryMetadata(topic="fastapi", source="livro", date=date(2026, 8, 25), session_id="s1")
 VECTOR = [0.1, 0.2, 0.3]
@@ -322,3 +322,69 @@ async def test_delete_session_degrades_on_qdrant_offline() -> None:
     # Não levanta exceção (graceful degradation).
     await service.delete_session("sess-1")
     assert True
+
+
+# --- Renomear tópico ---
+
+
+async def test_rename_topic_renames_and_reports_count() -> None:
+    service, _embeddings, store = make_service()
+    store.count_by_topic.return_value = 0  # nome novo ainda não existe
+    store.rename_topic.return_value = 3
+
+    result = await service.rename_topic("fastapi", "FastAPI DI")
+
+    assert result.status is RenameTopicStatus.RENAMED
+    assert result.updated == 3
+    store.rename_topic.assert_awaited_once_with("fastapi", "FastAPI DI")
+
+
+async def test_rename_topic_conflicts_with_existing_topic() -> None:
+    """Nome já usado por outro tópico não funde em silêncio: vira CONFLICT."""
+    service, _embeddings, store = make_service()
+    store.count_by_topic.return_value = 2  # "react" já existe
+
+    result = await service.rename_topic("fastapi", "react")
+
+    assert result.status is RenameTopicStatus.CONFLICT
+    store.rename_topic.assert_not_awaited()
+
+
+async def test_rename_topic_not_found_when_source_missing() -> None:
+    service, _embeddings, store = make_service()
+    store.count_by_topic.return_value = 0
+    store.rename_topic.return_value = 0
+
+    result = await service.rename_topic("inexistente", "novo")
+
+    assert result.status is RenameTopicStatus.NOT_FOUND
+
+
+async def test_rename_topic_same_name_is_noop() -> None:
+    """Renomear para o mesmo nome não escreve no Qdrant, mas confirma a contagem."""
+    service, _embeddings, store = make_service()
+    store.count_by_topic.return_value = 4
+
+    result = await service.rename_topic("fastapi", "fastapi")
+
+    assert result.status is RenameTopicStatus.RENAMED
+    assert result.updated == 4
+    store.rename_topic.assert_not_awaited()
+
+
+async def test_rename_topic_same_name_unknown_topic_is_not_found() -> None:
+    service, _embeddings, store = make_service()
+    store.count_by_topic.return_value = 0
+
+    result = await service.rename_topic("inexistente", "inexistente")
+
+    assert result.status is RenameTopicStatus.NOT_FOUND
+
+
+async def test_rename_topic_degrades_when_qdrant_offline() -> None:
+    service, _embeddings, store = make_service()
+    store.count_by_topic.side_effect = ConnectionError("qdrant offline")
+
+    result = await service.rename_topic("fastapi", "novo")
+
+    assert result.status is RenameTopicStatus.UNAVAILABLE

@@ -20,6 +20,39 @@ export async function getTopicCounts(): Promise<TopicCount[]> {
   return (await res.json()) as TopicCount[];
 }
 
+export interface RenameTopicResult {
+  topic: string;
+  updated: number;
+}
+
+/**
+ * Renomeia um tópico (e todas as memórias dele) — o "renomear" da sidebar.
+ *
+ * O nome atual vai no corpo (não no path) porque tópico é texto livre e pode
+ * conter `/`. Lança `Error` com o `detail` do backend quando a resposta não é
+ * 2xx (404 tópico inexistente, 409 nome já usado, 503 armazenamento fora).
+ */
+export async function renameTopic(topic: string, name: string): Promise<RenameTopicResult> {
+  const res = await fetch(`${API_BASE}/topics`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic, name }),
+  });
+
+  if (!res.ok) {
+    let detail = `Não foi possível renomear o tópico (${res.status})`;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // corpo não-JSON; mantém a mensagem padrão
+    }
+    throw new Error(detail);
+  }
+
+  return (await res.json()) as RenameTopicResult;
+}
+
 /**
  * Consome o SSE de `POST /api/chat/stream` via fetch + ReadableStream e
  * chama `onEvent` para cada evento `data:` recebido.
