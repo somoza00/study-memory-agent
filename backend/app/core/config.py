@@ -58,6 +58,27 @@ class Settings(BaseSettings):
     # None = auth desabilitada (dev). Em produção, defina para fechar a API.
     api_key: str | None = None
     environment: str = "development"
+    # --- Recall (busca de memória usada no chat) ---
+    # Quantas memórias o chat recupera por mensagem.
+    recall_limit: int = 5
+    # Similaridade mínima para uma memória contar como relevante. Vazio = default
+    # por provedor de embedding (ver `recall_score_threshold`): 0.7 para os
+    # embeddings da OpenAI, 0.55 para o modelo local. O 0.7 único era calibrado
+    # para a OpenAI; medindo com o MiniLM local, consulta não relacionada fica
+    # <= 0.19 de score e memória relevante entre 0.62 e 0.89 — metade dos acertos
+    # caía fora do corte e o agente respondia sem contexto.
+    recall_min_score: float | None = None
+    # Escopo do recall do chat (e da tool `recall_memory`):
+    #   "all"     = enxerga memórias de TODAS as sessões (default). É o que o
+    #               projeto promete — memória persistente entre sessões — e o
+    #               frontend cria uma sessão nova a cada carregamento de página;
+    #               com escopo por sessão o agente "esquecia" tudo do dia anterior.
+    #   "session" = restringe à sessão atual (isolamento por conversa).
+    recall_scope: Literal["all", "session"] = "all"
+    # Tracing OTel → Langfuse. Desligado por default: sem o Langfuse no ar, o
+    # exporter só gera ruído no log e timeout a cada span. Ligue junto com o
+    # profile `observability` do compose.
+    langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3000"
     langfuse_public_key: str = "pk-local"
     langfuse_secret_key: str = "sk-local"
@@ -78,6 +99,21 @@ class Settings(BaseSettings):
     def embedding_endpoint(self) -> str | None:
         """Base URL efetiva dos embeddings (`EMBEDDING_BASE_URL` ou herda a do agente)."""
         return self.embedding_base_url or self.openai_base_url
+
+    @field_validator("recall_min_score", mode="before")
+    @classmethod
+    def _blank_recall_score_means_unset(cls, value: object) -> object:
+        """`RECALL_MIN_SCORE=` vazio no `.env` significa "usa o default do provedor"."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @property
+    def recall_score_threshold(self) -> float:
+        """Limiar de similaridade efetivo do recall (default depende do provedor)."""
+        if self.recall_min_score is not None:
+            return self.recall_min_score
+        return 0.7 if self.embedding_provider == "openai" else 0.55
 
     @model_validator(mode="after")
     def _api_key_required_in_production(self) -> Settings:

@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from openai import OpenAIError
 
 from app.api.deps import get_memory_service, get_vector_store
+from app.core.config import settings
 from app.models.memory import (
     MemoryCreate,
     MemoryCreated,
@@ -36,13 +37,16 @@ async def create_memory(
     memory: MemoryService = Depends(get_memory_service),
 ) -> MemoryCreated:
     """Cria (armazena) uma memória manualmente, além de via agente."""
-    metadata = MemoryMetadata(
-        topic=payload.topic,
-        source=payload.source,
-        date=date.today(),
-        session_id=payload.session_id,
-    )
     try:
+        # Reusa a grafia de um tópico existente quando só a caixa difere (mesmo
+        # motivo do caminho do agente: "FastAPI" e "fastapi" duplicavam na sidebar).
+        topic = await memory.canonical_topic(payload.topic)
+        metadata = MemoryMetadata(
+            topic=topic,
+            source=payload.source,
+            date=date.today(),
+            session_id=payload.session_id,
+        )
         memory_id, persisted = await memory.store(payload.text, metadata)
     except OpenAIError as exc:
         # Espelha o /api/chat: falha de embedding (OpenAI) vira 502, não 500 cru
@@ -52,7 +56,8 @@ async def create_memory(
         ) from exc
     except Exception as exc:
         # Espelha o /api/chat: erro não-OpenAI também vira 502 estruturado,
-        # nunca 500 cru (regra do AGENTS.md).
+        # nunca 500 cru (regra do AGENTS.md). Inclui a resolução do tópico, que
+        # roda antes do embedding — nada aqui pode escapar como 500.
         logger.exception("POST /api/memories falhou com erro não-OpenAI")
         raise HTTPException(status_code=502, detail=f"Erro interno: {exc}") from exc
     return MemoryCreated(id=memory_id, persisted=persisted, metadata=metadata)
@@ -77,7 +82,12 @@ async def list_memories(
 async def search_memories(
     q: str = Query(..., min_length=1, max_length=2000, description="Consulta textual."),
     limit: int = Query(default=10, ge=1, le=50, description="Máximo de memórias retornadas."),
-    min_score: float = Query(default=0.7, ge=0.0, le=1.0, description="Similaridade mínima (0-1)."),
+    min_score: float | None = Query(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Similaridade mínima (0-1). Vazio = default configurado (por provedor).",
+    ),
     topic: str | None = Query(default=None, max_length=120, description="Filtra por tópico."),
     session_id: str | None = Query(default=None, max_length=200, description="Filtra por sessão."),
     memory: MemoryService = Depends(get_memory_service),
@@ -86,7 +96,8 @@ async def search_memories(
 
     Declarada ANTES de `/memories/{memory_id}` para não ser capturada como id.
     """
-    return await memory.recall(q, limit, min_score, topic, session_id=session_id)
+    threshold = settings.recall_score_threshold if min_score is None else min_score
+    return await memory.recall(q, limit, threshold, topic, session_id=session_id)
 
 
 @router.get("/topics", response_model=list[str])
