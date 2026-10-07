@@ -83,3 +83,29 @@ class TopicCount(BaseModel):
 
     topic: str
     count: int
+
+
+class TopicRename(BaseModel):
+    """Payload do `PATCH /api/topics` (renomeia um tópico existente).
+
+    O nome atual vai no corpo, não no path: tópico é texto livre e pode conter
+    `/` (ex.: `python/asyncio`), o que exigiria escaping no path.
+    """
+
+    topic: str = Field(..., max_length=120, description="Tópico atual.")
+    name: str = Field(..., min_length=1, max_length=120, description="Novo nome do tópico.")
+
+    @field_validator("topic", "name")
+    @classmethod
+    def _reject_blank_topic_names(cls, value: str) -> str:
+        """Nome só com espaços polui filtros e a sidebar; rejeita (422)."""
+        if not value.strip():
+            raise ValueError("não pode conter apenas espaços")
+        return value.strip()
+
+
+class TopicRenamed(BaseModel):
+    """Resposta do `PATCH /api/topics`."""
+
+    topic: str = Field(..., description="Nome novo, já aplicado.")
+    updated: int = Field(..., description="Quantas memórias foram renomeadas.")
