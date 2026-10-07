@@ -38,6 +38,40 @@ docker compose up -d --build
 > `docker compose --profile observability up -d` (adiciona `postgres`, `redis`
 > e `langfuse`). Sem o Langfuse o app roda normal — só não exporta traces.
 
+## Provedores (agente e embeddings)
+O agente (chat) fala com qualquer endpoint OpenAI-compatível via
+`OPENAI_BASE_URL` — OpenCode Zen/Go, Ollama, vLLM, LiteLLM etc. Provedores que
+exigem headers próprios usam `OPENAI_EXTRA_HEADERS` (JSON): o OpenCode Go pede
+um `x-opencode-session` estável.
+
+Os **embeddings têm provedor próprio** (`EMBEDDING_PROVIDER`), porque nem todo
+provedor de chat serve `/embeddings` — o OpenCode, por exemplo, expõe só
+`/chat/completions` (a rota de embeddings responde 404):
+
+- `openai` (default): endpoint OpenAI-compatível, com `EMBEDDING_BASE_URL` /
+  `EMBEDDING_API_KEY` (vazias = herdam as do agente).
+- `local`: ONNX no próprio processo via `fastembed` (extra
+  `local-embeddings`), sem chave e sem rede depois do primeiro download dos
+  pesos. Multilíngue, roda offline.
+
+Exemplo — agente no OpenCode Go, embeddings locais (sem chave da OpenAI):
+```bash
+OPENAI_BASE_URL=https://opencode.ai/zen/go/v1
+OPENAI_API_KEY=<chave do OpenCode>
+AGENT_MODEL=deepseek-v4.1-flash
+OPENAI_EXTRA_HEADERS={"x-opencode-session":"study-memory-agent","User-Agent":"study-memory-agent/1.0"}
+EMBEDDING_PROVIDER=local
+EMBEDDING_DIM=384
+```
+
+> **Trocar de modelo de embedding exige recriar a collection.** `EMBEDDING_DIM`
+> precisa casar com o modelo (OpenAI `text-embedding-3-small` = 1536; MiniLM
+> multilíngue = 384) e a collection do Qdrant guarda a dimensão da criação —
+> vetores de outro tamanho são rejeitados. Para trocar, recrie a collection
+> (`docker compose down -v`, ou apague só a collection
+> `study_memories` no dashboard em http://localhost:6333/dashboard). O backend
+> falha com mensagem explícita quando `EMBEDDING_DIM` e o modelo divergem.
+
 ## Endpoints
 | Método | Rota | Descrição |
 | ------ | ---- | --------- |

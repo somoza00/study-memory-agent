@@ -14,7 +14,9 @@ RUN apt-get update \
 COPY pyproject.toml ./
 COPY README.md ./
 COPY app ./app
-RUN pip install --no-cache-dir .
+# `local-embeddings` instala o fastembed/onnxruntime: sem ele o provedor de
+# embeddings local (EMBEDDING_PROVIDER=local) não sobe no container.
+RUN pip install --no-cache-dir ".[local-embeddings]"
 
 COPY . .
 

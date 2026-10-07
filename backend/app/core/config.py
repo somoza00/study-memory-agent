@@ -6,6 +6,8 @@ variáveis de ambiente obrigatórias (ex.: testes, CI).
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,14 +21,39 @@ class Settings(BaseSettings):
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     qdrant_collection: str = "study_memories"
-    embedding_model: str = "text-embedding-3-small"
     agent_model: str = "gpt-4o-mini"
-    # Base URL de um endpoint OpenAI-compatível para o modelo do agente E os
-    # embeddings (ex.: servidor local/self-hosted — Ollama, vLLM, LiteLLM).
-    # Vazio = endpoint padrão da OpenAI (comportamento atual). Desacopla o
-    # projeto de um provedor específico: sem isto, embeddings e agente ficam
-    # presos à OpenAI e o app não roda sem uma chave paga.
+    # Base URL OpenAI-compatível do MODELO DO AGENTE (ex.: OpenCode Zen, Ollama,
+    # vLLM, LiteLLM). Vazio = endpoint padrão da OpenAI. Desacopla o projeto de
+    # um provedor específico: sem isto, o agente fica preso à OpenAI e o app não
+    # roda sem uma chave paga.
     openai_base_url: str | None = None
+    # Headers extras do provedor do agente (JSON). Ex.: o OpenCode Go exige um
+    # `x-opencode-session` estável para roteamento e cache de prompt.
+    openai_extra_headers: dict[str, str] = {}
+    # --- Embeddings ---
+    # "openai" = endpoint OpenAI-compatível (`EMBEDDING_BASE_URL`/`EMBEDDING_API_KEY`);
+    # "local"  = ONNX no próprio processo (fastembed), sem chave nem chamada de rede.
+    embedding_provider: Literal["openai", "local"] = "openai"
+    embedding_model: str = "text-embedding-3-small"
+    # Dimensão do vetor da collection: precisa casar com o modelo escolhido
+    # (OpenAI text-embedding-3-small = 1536; MiniLM multilíngue local = 384).
+    # Trocar de provedor/dimensão exige recriar a collection (ver README).
+    embedding_dim: int = 1536
+    # Modelo do provedor local (só usado com EMBEDDING_PROVIDER=local).
+    local_embedding_model: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    # Diretório dos pesos ONNX baixados; None usa o default do fastembed.
+    embedding_cache_dir: str | None = None
+    # Embeddings têm provedor PRÓPRIO: o endpoint do agente não serve para eles
+    # em geral (ex.: o OpenCode Zen/Go expõe só /chat/completions; mandar
+    # embedding para lá devolve 404). Vazio = herda `OPENAI_BASE_URL`
+    # (compatibilidade com quem aponta os dois para o mesmo servidor
+    # self-hosted); para usar a OpenAI só nos embeddings, defina
+    # `EMBEDDING_BASE_URL=https://api.openai.com/v1`.
+    embedding_base_url: str | None = None
+    # Chave do endpoint de embeddings; vazia = usa a mesma do agente.
+    embedding_api_key: str = ""
     # Chave de autenticação da própria API (header X-API-Key) para as rotas /api.
     # None = auth desabilitada (dev). Em produção, defina para fechar a API.
     api_key: str | None = None
@@ -41,6 +68,16 @@ class Settings(BaseSettings):
         """`API_KEY=` vazio no .env deve significar "auth desabilitada", não
         uma chave literal de string vazia (que bloquearia toda a API)."""
         return value or None
+
+    @property
+    def embedding_key(self) -> str:
+        """Chave do endpoint de embeddings (cai para a do agente se não houver)."""
+        return self.embedding_api_key or self.openai_api_key
+
+    @property
+    def embedding_endpoint(self) -> str | None:
+        """Base URL efetiva dos embeddings (`EMBEDDING_BASE_URL` ou herda a do agente)."""
+        return self.embedding_base_url or self.openai_base_url
 
     @model_validator(mode="after")
     def _api_key_required_in_production(self) -> Settings:

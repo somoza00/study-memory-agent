@@ -8,6 +8,9 @@ volumes:
   qdrant_data:
   pgdata:
   redisdata:
+  # Pesos do modelo de embedding local (ONNX): persistem entre recriações do
+  # container — sem isto, os ~470MB seriam rebaixados a cada `up`.
+  fastembed_cache:
 
 x-backend-env: &backend-env
   QDRANT_HOST: ${QDRANT_HOST:-qdrant}
@@ -15,6 +18,19 @@ x-backend-env: &backend-env
   QDRANT_COLLECTION: ${QDRANT_COLLECTION:-study_memories}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  # Embeddings têm provedor próprio (o do agente pode não servir /embeddings,
+  # ex.: OpenCode Zen/Go). Vazio = herda OPENAI_BASE_URL / OPENAI_API_KEY.
+  EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+  EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+  # openai (endpoint OpenAI-compatível) | local (ONNX no processo, sem chave).
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+  # Precisa casar com o modelo: OpenAI small = 1536; MiniLM local = 384.
+  EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+  LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+  EMBEDDING_CACHE_DIR: ${EMBEDDING_CACHE_DIR:-/app/.cache/fastembed}
+  # Headers extras do provedor do agente (JSON). OpenCode Go exige
+  # x-opencode-session (roteamento/cache de prompt).
+  OPENAI_EXTRA_HEADERS: ${OPENAI_EXTRA_HEADERS:-}
   AGENT_MODEL: ${AGENT_MODEL:-gpt-4o-mini}
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
@@ -109,6 +125,8 @@ services:
         required: false
     ports:
       - "${BACKEND_PORT:-8001}:8000"
+    volumes:
+      - fastembed_cache:/app/.cache/fastembed
     networks: [sma]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

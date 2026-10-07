@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import date
 
+from openai import AsyncOpenAI
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -71,14 +72,34 @@ class AgentService:
         self._config = config
         self._agent = self._build_agent()
 
+    def _build_provider(self) -> OpenAIProvider:
+        """Monta o provider do agente apontando para o endpoint configurado.
+
+        Sem `OPENAI_EXTRA_HEADERS` usa o caminho simples (api_key/base_url). Com
+        headers extras (ex.: `x-opencode-session`, exigido pelo OpenCode Go)
+        constrói o cliente OpenAI à mão, porque `OpenAIProvider` não expõe
+        `default_headers` — só aceita um `AsyncOpenAI` já pronto.
+        """
+        headers = self._config.openai_extra_headers
+        if not headers:
+            return OpenAIProvider(
+                api_key=self._config.openai_api_key,
+                # None preserva o endpoint padrão da OpenAI; um valor aponta o
+                # agente para qualquer endpoint OpenAI-compatível (local/self-hosted).
+                base_url=self._config.openai_base_url,
+            )
+        client = AsyncOpenAI(
+            # Endpoint compatível pode não exigir chave; o SDK exige uma string
+            # não-vazia, então usamos o mesmo placeholder do Pydantic AI.
+            api_key=self._config.openai_api_key or "api-key-not-set",
+            base_url=self._config.openai_base_url,
+            default_headers=headers,
+        )
+        return OpenAIProvider(openai_client=client)
+
     def _build_agent(self) -> Agent[AgentDeps, str]:
         """Constrói o agente, registra tools/instruções e ativa o OTEL nativo."""
-        provider = OpenAIProvider(
-            api_key=self._config.openai_api_key,
-            # None preserva o endpoint padrão da OpenAI; um valor aponta o
-            # agente para qualquer endpoint OpenAI-compatível (local/self-hosted).
-            base_url=self._config.openai_base_url,
-        )
+        provider = self._build_provider()
         model = OpenAIChatModel(model_name=self._config.agent_model, provider=provider)
         agent = Agent[AgentDeps, str](
             model,
