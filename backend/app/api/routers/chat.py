@@ -16,7 +16,7 @@ from openai import OpenAIError
 
 from app.api.deps import get_agent_service
 from app.models.chat import ChatRequest, ChatResponse
-from app.services.agent_service import AgentService
+from app.services.agent_service import AgentService, ProviderNotConfiguredError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -30,6 +30,17 @@ async def chat(
     """Processa uma mensagem com recuperação de memórias (filtro `topic` opcional)."""
     try:
         result = await agent.chat(request.message, request.session_id, request.topic)
+    except ProviderNotConfiguredError as exc:
+        # Provedor não configurado é problema de deploy, não falha de provider:
+        # 503 com o motivo, nunca o 500 cru que saía da construção do agente.
+        logger.error("chat sem provedor configurado: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "nenhum provedor de LLM configurado: defina OPENAI_API_KEY "
+                "(ou OPENAI_BASE_URL para um endpoint OpenAI-compatível)"
+            ),
+        ) from exc
     except OpenAIError as exc:
         # Espelha o tratamento do endpoint de streaming: falha do provider
         # vira uma resposta de erro estruturada (502), não um 500 cru.
@@ -77,6 +88,17 @@ async def chat_stream(
                 else:
                     data["content"] = event.content
                 yield _sse(data)
+        except ProviderNotConfiguredError as exc:
+            logger.error("stream sem provedor configurado: %s", exc)
+            yield _sse(
+                {
+                    "type": "error",
+                    "detail": (
+                        "nenhum provedor de LLM configurado: defina OPENAI_API_KEY "
+                        "(ou OPENAI_BASE_URL para um endpoint OpenAI-compatível)"
+                    ),
+                }
+            )
         except OpenAIError as exc:
             yield _sse({"type": "error", "detail": str(exc)})
         except Exception as exc:

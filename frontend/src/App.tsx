@@ -5,6 +5,11 @@ import { ChatMessage } from "./components/ChatMessage";
 import { TopicsSidebar } from "./components/TopicsSidebar";
 import type { ChatMessage as ChatMessageType } from "./types";
 
+// Sidebar: 3 tentativas curtas antes de desistir — se a página abre enquanto o
+// backend ainda está subindo, a primeira chamada falha.
+const TOPIC_REFRESH_ATTEMPTS = 3;
+const TOPIC_REFRESH_DELAY_MS = 500;
+
 export default function App() {
   const sessionId = useMemo(() => crypto.randomUUID(), []);
 
@@ -19,14 +24,27 @@ export default function App() {
 
   // Contagem real de memórias por tópico, vinda do backend (antes o FE
   // "adivinhava" contando mensagens que citavam o tópico — número enganoso).
-  const refreshTopics = useCallback(() => {
-    getTopicCounts()
-      .then((rows) => setTopicCounts(Object.fromEntries(rows.map((r) => [r.topic, r.count]))))
-      .catch(() => setTopicCounts({}));
+  // Com retry: se a página abre enquanto o backend ainda está subindo, a
+  // primeira chamada falha e a sidebar ficava vazia até um reload manual.
+  const refreshTopics = useCallback(async () => {
+    for (let attempt = 1; attempt <= TOPIC_REFRESH_ATTEMPTS; attempt += 1) {
+      try {
+        const rows = await getTopicCounts();
+        setTopicCounts(Object.fromEntries(rows.map((r) => [r.topic, r.count])));
+        return;
+      } catch (err) {
+        if (attempt === TOPIC_REFRESH_ATTEMPTS) {
+          // Explica a sidebar vazia em vez de deixar o usuário no escuro.
+          setError((prev) => prev ?? "Não foi possível carregar os tópicos — recarregue a página.");
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, TOPIC_REFRESH_DELAY_MS * attempt));
+      }
+    }
   }, []);
 
   useEffect(() => {
-    refreshTopics();
+    void refreshTopics();
   }, [refreshTopics]);
 
   const topics = useMemo(() => Object.keys(topicCounts), [topicCounts]);
@@ -78,7 +96,7 @@ export default function App() {
       } finally {
         setStreaming(false);
         streamingIdRef.current = null;
-        refreshTopics(); // a conversa pode ter gravado memória/tópico novo
+        void refreshTopics(); // a conversa pode ter gravado memória/tópico novo
       }
     },
     [sessionId, activeTopic, refreshTopics]

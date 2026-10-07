@@ -10,6 +10,7 @@ durante a conversa. A instrumentação usa o OTEL nativo do Pydantic AI
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import date
@@ -23,15 +24,25 @@ from app.core.config import Settings, settings
 from app.models.memory import MemoryMetadata, MemoryResult
 from app.services.memory_service import MemoryService
 
-RECALL_LIMIT = 5
-RECALL_MIN_SCORE = 0.7
+logger = logging.getLogger(__name__)
+
+
+class ProviderNotConfiguredError(RuntimeError):
+    """O provedor do agente não pôde ser inicializado (credencial/endpoint).
+
+    Existe para o router responder um status estruturado (503) em vez do 500 cru
+    que acontecia quando a exceção subia na resolução da dependência do FastAPI.
+    """
+
 
 DEFAULT_INSTRUCTIONS = (
     "Você é um assistente de estudos com memória persistente. "
     "Use as memórias do usuário injetadas abaixo como contexto ao responder. "
     "Grave novos aprendizados com store_memory, busque contexto com recall_memory "
-    "e descubra tópicos já estudados com list_topics. Responda sempre em português, "
-    "de forma clara e direta."
+    "e descubra tópicos já estudados com list_topics. Antes de criar um tópico novo, "
+    "chame list_topics e reutilize o tópico existente que já cubra o assunto — "
+    "tópicos duplicados (mesmo assunto com nomes diferentes) poluem a lista do usuário. "
+    "Responda sempre em português, de forma clara e direta."
 )
 
 
@@ -42,6 +53,10 @@ class AgentDeps:
     memory: MemoryService
     session_id: str
     context: list[MemoryResult]
+    # Limiar de similaridade do recall (vem de `Settings`, não fixo no código).
+    threshold: float = 0.7
+    # Filtro de sessão do recall: None = busca em todas as sessões (default).
+    session_filter: str | None = None
 
 
 @dataclass
@@ -70,7 +85,23 @@ class AgentService:
     def __init__(self, memory_service: MemoryService, config: Settings = settings) -> None:
         self._memory = memory_service
         self._config = config
-        self._agent = self._build_agent()
+        self._agent: Agent[AgentDeps, str] | None = None
+        self._agent_error: Exception | None = None
+        try:
+            self._agent = self._build_agent()
+        except Exception as exc:
+            # Credencial ausente/endpoint inválido não pode explodir aqui: esta
+            # dependência é resolvida pelo FastAPI ANTES do corpo da rota, então
+            # a exceção escapava do try/except do router e virava 500 cru.
+            # Guardamos o erro e devolvemos 503 estruturado quando o chat é usado.
+            self._agent_error = exc
+            logger.error("provedor do agente não pôde ser inicializado: %s", exc)
+
+    def _require_agent(self) -> Agent[AgentDeps, str]:
+        """Devolve o agente, ou falha com `ProviderNotConfiguredError`."""
+        if self._agent is None:
+            raise ProviderNotConfiguredError(str(self._agent_error)) from self._agent_error
+        return self._agent
 
     def _build_provider(self) -> OpenAIProvider:
         """Monta o provider do agente apontando para o endpoint configurado.
@@ -120,6 +151,10 @@ class AgentService:
             ctx: RunContext[AgentDeps], text: str, topic: str, source: str
         ) -> str:
             """Registra uma nova memória de estudo no Qdrant."""
+            # Reusa a grafia de um tópico existente quando só a caixa difere:
+            # o modelo escolhe a string livremente ("FastAPI" vs "fastapi") e
+            # tópicos duplicados aparecem separados na sidebar.
+            topic = await ctx.deps.memory.canonical_topic(topic)
             metadata = MemoryMetadata(
                 topic=topic,
                 source=source,
@@ -139,13 +174,18 @@ class AgentService:
             ctx: RunContext[AgentDeps],
             query: str,
             limit: int = 5,
-            min_score: float = 0.7,
+            min_score: float | None = None,
             topic: str | None = None,
         ) -> list[dict[str, object]]:
-            """Busca memórias relacionadas a `query`, filtradas por `topic` se informado."""
+            """Busca memórias relacionadas a `query`, filtradas por `topic` se informado.
+
+            `min_score` vazio usa o limiar configurado (`RECALL_MIN_SCORE` ou o
+            default do provedor de embedding).
+            """
             limit = max(1, min(int(limit), 20))  # teto p/ controlar tokens do recall
+            threshold = ctx.deps.threshold if min_score is None else min_score
             results = await ctx.deps.memory.recall(
-                query, limit, min_score, topic, session_id=ctx.deps.session_id
+                query, limit, threshold, topic, session_id=ctx.deps.session_filter
             )
             return [r.model_dump(mode="json") for r in results]
 
@@ -156,13 +196,34 @@ class AgentService:
 
         return agent
 
+    def _recall_session_filter(self, session_id: str) -> str | None:
+        """Filtro de sessão do recall: None quando o escopo é "todas as sessões".
+
+        Com escopo por sessão (e o frontend criando uma sessão nova a cada
+        reload) o agente não enxergava nada do que o usuário estudou antes — o
+        oposto da promessa de memória persistente entre sessões.
+        """
+        return session_id if self._config.recall_scope == "session" else None
+
     async def chat(self, message: str, session_id: str, topic: str | None = None) -> ChatResult:
         """Recupera memórias (opcionalmente de um `topic`) e gera a resposta."""
+        agent = self._require_agent()
+        session_filter = self._recall_session_filter(session_id)
         memories = await self._memory.recall(
-            message, RECALL_LIMIT, RECALL_MIN_SCORE, topic, session_id=session_id
+            message,
+            self._config.recall_limit,
+            self._config.recall_score_threshold,
+            topic,
+            session_id=session_filter,
         )
-        deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
-        result = await self._agent.run(message, deps=deps)
+        deps = AgentDeps(
+            memory=self._memory,
+            session_id=session_id,
+            context=memories,
+            threshold=self._config.recall_score_threshold,
+            session_filter=session_filter,
+        )
+        result = await agent.run(message, deps=deps)
         return ChatResult(response=str(result.output), memories_used=len(memories))
 
     async def stream_chat(
@@ -174,11 +235,23 @@ class AgentService:
         comportamento de `chat`) e emite `StreamEvent` de tipo `token` a cada
         delta de texto, terminando com `done` + `memories_used`.
         """
+        agent = self._require_agent()
+        session_filter = self._recall_session_filter(session_id)
         memories = await self._memory.recall(
-            message, RECALL_LIMIT, RECALL_MIN_SCORE, topic, session_id=session_id
+            message,
+            self._config.recall_limit,
+            self._config.recall_score_threshold,
+            topic,
+            session_id=session_filter,
         )
-        deps = AgentDeps(memory=self._memory, session_id=session_id, context=memories)
-        async with self._agent.run_stream(message, deps=deps) as agent_run:
+        deps = AgentDeps(
+            memory=self._memory,
+            session_id=session_id,
+            context=memories,
+            threshold=self._config.recall_score_threshold,
+            session_filter=session_filter,
+        )
+        async with agent.run_stream(message, deps=deps) as agent_run:
             async for delta in agent_run.stream_text(delta=True):
                 yield StreamEvent(type="token", content=delta)
         yield StreamEvent(type="done", memories_used=len(memories))

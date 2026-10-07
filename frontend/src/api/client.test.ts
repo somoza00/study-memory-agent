@@ -46,9 +46,10 @@ describe("getTopicCounts", () => {
     expect(await getTopicCounts()).toEqual([{ topic: "di", count: 3 }]);
   });
 
-  it("degrada para [] em erro do servidor", async () => {
+  it("lança Error em erro do servidor (o chamador decide se tenta de novo)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({}, 503)));
-    expect(await getTopicCounts()).toEqual([]);
+
+    await expect(getTopicCounts()).rejects.toThrow("(503)");
   });
 });
 
