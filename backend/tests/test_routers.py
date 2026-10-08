@@ -15,6 +15,7 @@ from app.api.deps import get_agent_service, get_memory_service, get_vector_store
 from app.main import app
 from app.models.memory import MemoryMetadata, StoredMemory
 from app.services.agent_service import AgentService, ChatResult, StreamEvent
+from app.services.memory_service import RenameTopicResult, RenameTopicStatus
 
 
 class _FakeStreamAgent:
@@ -45,6 +46,9 @@ def _memory_mock() -> AsyncMock:
     # Default neutro: devolve o tópico apenas normalizado (testes específicos de
     # grafia canônica sobrescrevem com o valor existente).
     memory.canonical_topic.side_effect = lambda topic: topic.strip()
+    memory.rename_topic.return_value = RenameTopicResult(
+        status=RenameTopicStatus.RENAMED, updated=2
+    )
     return memory
 
 
@@ -583,6 +587,24 @@ def test_search_uses_configured_recall_threshold(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+# --- Renomear tópico (PATCH /api/topics) ---
+
+
+def test_rename_topic_returns_new_name_and_count() -> None:
+    """Rename bem-sucedido devolve o nome novo e quantas memórias mudaram."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/topics", json={"topic": "fastapi", "name": " FastAPI DI "})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"topic": "FastAPI DI", "updated": 2}
+        # O nome é normalizado (trim) antes de chegar ao serviço.
+        memory.rename_topic.assert_awaited_once_with("fastapi", "FastAPI DI")
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_search_honours_explicit_min_score() -> None:
     memory = _memory_mock()
     memory.recall.return_value = []
@@ -592,5 +614,57 @@ def test_search_honours_explicit_min_score() -> None:
         resp = client.get("/api/memories/search?q=di&min_score=0.9")
         assert resp.status_code == 200, resp.text
         memory.recall.assert_awaited_once_with("di", 10, 0.9, None, session_id=None)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rename_topic_404_when_source_missing() -> None:
+    memory = _memory_mock()
+    memory.rename_topic.return_value = RenameTopicResult(status=RenameTopicStatus.NOT_FOUND)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/topics", json={"topic": "inexistente", "name": "novo"})
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "tópico não encontrado"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rename_topic_409_when_name_already_used() -> None:
+    """Não funde dois tópicos em silêncio: nome já usado vira 409."""
+    memory = _memory_mock()
+    memory.rename_topic.return_value = RenameTopicResult(status=RenameTopicStatus.CONFLICT)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/topics", json={"topic": "fastapi", "name": "react"})
+        assert resp.status_code == 409
+        assert "react" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rename_topic_503_when_storage_unavailable() -> None:
+    memory = _memory_mock()
+    memory.rename_topic.return_value = RenameTopicResult(status=RenameTopicStatus.UNAVAILABLE)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/topics", json={"topic": "fastapi", "name": "novo"})
+        assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rename_topic_rejects_blank_name() -> None:
+    """Nome só com espaços não vira tópico: 422 antes de tocar o armazenamento."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/topics", json={"topic": "fastapi", "name": "   "})
+        assert resp.status_code == 422
+        memory.rename_topic.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()

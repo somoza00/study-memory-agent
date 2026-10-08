@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getTopicCounts, streamChat } from "./api/client";
+import { getTopicCounts, renameTopic, streamChat } from "./api/client";
 import { ChatInput } from "./components/ChatInput";
 import { ChatMessage } from "./components/ChatMessage";
 import { TopicsSidebar } from "./components/TopicsSidebar";
@@ -48,6 +48,24 @@ export default function App() {
   }, [refreshTopics]);
 
   const topics = useMemo(() => Object.keys(topicCounts), [topicCounts]);
+
+  // Renomear um tópico renomeia todas as memórias dele (uma chamada no backend).
+  // O `activeTopic` acompanha o nome novo — senão o filtro do chat apontaria
+  // para um tópico que não existe mais.
+  const handleRenameTopic = useCallback(
+    async (topic: string, name: string): Promise<boolean> => {
+      try {
+        await renameTopic(topic, name);
+        setActiveTopic((prev) => (prev === topic ? name : prev));
+        refreshTopics();
+        return true;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Não foi possível renomear o tópico.");
+        return false;
+      }
+    },
+    [refreshTopics]
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -109,6 +127,7 @@ export default function App() {
         counts={topicCounts}
         activeTopic={activeTopic}
         onSelect={setActiveTopic}
+        onRename={handleRenameTopic}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">

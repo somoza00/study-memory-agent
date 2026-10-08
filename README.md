@@ -110,6 +110,7 @@ EMBEDDING_DIM=384
 | POST   | `/api/chat/stream` | Resposta em Server-Sent Events (tokens + `done`) |
 | GET    | `/api/memories?topic=&limit=` | Lista memórias (filtro opcional por tópico) |
 | GET    | `/api/topics` | Tópicos distintos estudados |
+| PATCH  | `/api/topics` | Renomeia um tópico (e todas as memórias dele): `{topic, name}` |
 | DELETE | `/api/memories/{id}` | Remove uma memória |
 
 ## Streaming (SSE)

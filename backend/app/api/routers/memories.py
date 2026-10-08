@@ -3,6 +3,7 @@
 Expõe:
 - `GET    /api/memories?topic=&limit=`   → lista memórias (filtro opcional por tópico)
 - `GET    /api/topics`                    → tópicos distintos existentes
+- `PATCH  /api/topics`                    → renomeia um tópico (renomear da sidebar)
 - `DELETE /api/memories/{id}`            → remove uma memória pelo id
 """
 
@@ -23,8 +24,10 @@ from app.models.memory import (
     MemoryResult,
     StoredMemory,
     TopicCount,
+    TopicRename,
+    TopicRenamed,
 )
-from app.services.memory_service import MemoryService
+from app.services.memory_service import MemoryService, RenameTopicStatus
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -116,6 +119,34 @@ async def list_topic_counts(
 ) -> list[TopicCount]:
     """Lista os tópicos com a contagem de memórias de cada um (para a sidebar)."""
     return await memory.topic_counts(limit=limit)
+
+
+@router.patch("/topics", response_model=TopicRenamed)
+async def rename_topic(
+    payload: TopicRename,
+    memory: MemoryService = Depends(get_memory_service),
+) -> TopicRenamed:
+    """Renomeia um tópico (e todas as memórias dele) — o "renomear" da sidebar.
+
+    O nome atual vai no corpo porque tópico é texto livre e pode conter `/`, o
+    que exigiria escaping no path. Desfechos: 404 se o tópico de origem não
+    existir, 409 se o nome desejado já for de outro tópico (evita fundir dois
+    tópicos em silêncio) e 503 se o armazenamento estiver indisponível.
+    """
+    result = await memory.rename_topic(payload.topic, payload.name)
+    if result.status is RenameTopicStatus.UNAVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="armazenamento indisponível: não foi possível renomear o tópico",
+        )
+    if result.status is RenameTopicStatus.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="tópico não encontrado")
+    if result.status is RenameTopicStatus.CONFLICT:
+        raise HTTPException(
+            status_code=409,
+            detail=f"já existe um tópico chamado '{payload.name}'",
+        )
+    return TopicRenamed(topic=payload.name, updated=result.updated)
 
 
 @router.delete("/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)

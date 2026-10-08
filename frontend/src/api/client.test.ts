@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getTopicCounts, getTopics, streamChat } from "./client";
+import { getTopicCounts, getTopics, renameTopic, streamChat } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -50,6 +50,42 @@ describe("getTopicCounts", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({}, 503)));
 
     await expect(getTopicCounts()).rejects.toThrow("(503)");
+  });
+});
+
+describe("renameTopic", () => {
+  it("faz PATCH /api/topics com o nome atual no corpo", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ topic: "FastAPI DI", updated: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renameTopic("fastapi", "FastAPI DI");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/topics");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body as string)).toEqual({ topic: "fastapi", name: "FastAPI DI" });
+    expect(result).toEqual({ topic: "FastAPI DI", updated: 3 });
+  });
+
+  it("lança Error com o detail do backend (nome já usado → 409)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ detail: "já existe um tópico chamado 'react'" }, 409)),
+    );
+
+    await expect(renameTopic("fastapi", "react")).rejects.toThrow(
+      "já existe um tópico chamado 'react'",
+    );
+  });
+
+  it("usa mensagem padrão quando o erro não traz corpo JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("boom", { status: 503 })));
+
+    await expect(renameTopic("fastapi", "novo")).rejects.toThrow("(503)");
   });
 });
 
