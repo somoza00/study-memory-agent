@@ -18,7 +18,7 @@ dependencies = [
   # Alinhado ao servidor do compose (qdrant/qdrant:v1.12.4): o cliente avisa
   # (e o pytest poluía o output) quando o minor do cliente passa o do servidor
   # em mais de 1. Subir o servidor é a alternativa — aí sobe este teto junto.
-  "qdrant-client>=1.12,<1.13",
+  "qdrant-client>=1.12,<1.20",
   "openai>=1.55",
   "langfuse>=2.55",
   "python-dotenv>=1.0",
