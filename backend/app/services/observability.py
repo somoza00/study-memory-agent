@@ -31,9 +31,13 @@ def _basic_auth(public_key: str, secret_key: str) -> str:
 def configure_langfuse_otel(config: Settings = settings) -> None:
     """Configura o `TracerProvider` global do OpenTelemetry para exportar ao Langfuse.
 
-    Se as credenciais estiverem vazias (dev sem `.env`), ainda monta o exporter;
-    a exportação só acontece quando o agente emite spans de fato.
+    Só monta o exporter com `LANGFUSE_ENABLED=true`: sem o Langfuse no ar o
+    exporter falha a cada span (e o SDK fica tentando), o que enchia o log de
+    "Failed to export span batch" no uso normal do app — o README promete que
+    sem Langfuse o app roda igual, e agora isso vale também para o log.
     """
+    if not config.langfuse_enabled:
+        return
     endpoint = f"{config.langfuse_host.rstrip('/')}/api/public/otel/v1/traces"
     exporter = OTLPSpanExporter(
         endpoint=endpoint,

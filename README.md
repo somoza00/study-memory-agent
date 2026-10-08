@@ -33,10 +33,40 @@ docker compose up -d --build
 - Backend API: http://localhost:8001 (health em `/health`)
 - Qdrant dashboard: http://localhost:6333/dashboard
 
-> **Langfuse (observabilidade) é opcional.** O `docker compose up` sobe só
-> `qdrant` + `backend` + `frontend`. Para o tracing, suba com
-> `docker compose --profile observability up -d` (adiciona `postgres`, `redis`
-> e `langfuse`). Sem o Langfuse o app roda normal — só não exporta traces.
+> **Langfuse (observabilidade) é opcional e opt-in.** O `docker compose up` sobe só
+> `qdrant` + `backend` + `frontend`. Para o tracing, suba
+> `docker compose --profile observability up -d` (adiciona `postgres`, `redis` e
+> `langfuse` em http://localhost:3000) **e** ligue `LANGFUSE_ENABLED=true` — sem
+> isso o backend não exporta nada (e é de propósito: com o Langfuse fora do ar, o
+> exporter falhava a cada span e enchia o log de "Failed to export span batch").
+>
+> A imagem do Langfuse está fixada em **v2** de propósito: o v3 exige ClickHouse,
+> armazenamento S3-compatível e um container `worker` (o Postgres guarda só
+> metadados e o Redis a fila). Para migrar ao v3, adicione esses serviços e defina
+> `CLICKHOUSE_URL`/`CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD` + `LANGFUSE_S3_*`.
+>
+> **Atenção ao ligar o tracing:** o exporter que o agente usa é OTLP, e o endpoint
+> OTLP (`/api/public/otel/v1/traces`) **só existe no Langfuse v3** — contra a v2 ele
+> responde 404. Ou seja: com a stack v2 (a daqui) o profile sobe e a UI funciona,
+> mas `LANGFUSE_ENABLED=true` não vai entregar traces; para tracing de verdade
+> suba o v3.
+
+## Recall (busca de memória)
+`RECALL_LIMIT` (default 5), `RECALL_MIN_SCORE` e `RECALL_SCOPE` controlam o que o
+chat recupera.
+
+`RECALL_MIN_SCORE` vazio usa um default por provedor de embedding: **0.7** com
+`EMBEDDING_PROVIDER=openai` e **0.55** com `EMBEDDING_PROVIDER=local`, porque o
+modelo local produz scores sistematicamente mais baixos — medido: consulta não
+relacionada ≤ 0.19 e memória relevante entre 0.62 e 0.89. Com o corte único de 0.7
+(calibrado para a OpenAI) o agente respondia sem contexto em parte das perguntas
+mesmo tendo a memória gravada.
+
+`RECALL_SCOPE` (default `all`) define **de quais sessões** as memórias entram no
+contexto: `all` busca em todas as conversas; `session` restringe à conversa atual.
+O default é `all` porque o frontend cria uma sessão nova a cada carregamento de
+página — com `session`, o agente chegava a cada conversa sem saber de nada do que
+você já tinha estudado (o oposto da proposta do projeto).
 
 ## Provedores (agente e embeddings)
 O agente (chat) fala com qualquer endpoint OpenAI-compatível via

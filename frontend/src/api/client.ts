@@ -13,10 +13,16 @@ export interface TopicCount {
   count: number;
 }
 
-/** Contagem de memórias por tópico (fonte real no backend, não heurística do FE). */
+/**
+ * Contagem de memórias por tópico (fonte real no backend, não heurística do FE).
+ *
+ * Lança `Error` em resposta não-2xx: antes devolvia `[]` e a sidebar ficava
+ * vazia em definitivo quando a página abria enquanto o backend ainda subia —
+ * quem chama decide se tenta de novo.
+ */
 export async function getTopicCounts(): Promise<TopicCount[]> {
   const res = await fetch(`${API_BASE}/topics/counts`);
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(`Não foi possível carregar os tópicos (${res.status})`);
   return (await res.json()) as TopicCount[];
 }
 

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_agent_service, get_memory_service, get_vector_store
 from app.main import app
 from app.models.memory import MemoryMetadata, StoredMemory
-from app.services.agent_service import ChatResult, StreamEvent
+from app.services.agent_service import AgentService, ChatResult, StreamEvent
 from app.services.memory_service import RenameTopicResult, RenameTopicStatus
 
 
@@ -43,6 +43,9 @@ def _memory_mock() -> AsyncMock:
     memory.list_topics.return_value = ["fastapi", "react"]
     memory.delete.return_value = True
     memory.delete_session.return_value = True
+    # Default neutro: devolve o tópico apenas normalizado (testes específicos de
+    # grafia canônica sobrescrevem com o valor existente).
+    memory.canonical_topic.side_effect = lambda topic: topic.strip()
     memory.rename_topic.return_value = RenameTopicResult(
         status=RenameTopicStatus.RENAMED, updated=2
     )
@@ -377,6 +380,7 @@ def test_create_memory_returns_502_when_embedding_fails() -> None:
     from openai import OpenAIError
 
     memory = AsyncMock()
+    memory.canonical_topic.return_value = "react"
     memory.store.side_effect = OpenAIError("embedding api down")
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
@@ -394,6 +398,7 @@ def test_create_memory_returns_502_when_embedding_fails() -> None:
 def test_create_memory_returns_502_on_non_openai_failure() -> None:
     """Erro não-OpenAI no POST /api/memories vira 502, não 500 cru (nunca 500)."""
     memory = AsyncMock()
+    memory.canonical_topic.return_value = "react"
     memory.store.side_effect = IndexError("embedding vazio")
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
@@ -497,6 +502,91 @@ def test_deep_health_reports_qdrant_status() -> None:
         app.dependency_overrides.clear()
 
 
+# --- Provedor do LLM ausente: 503 estruturado, nunca 500 cru ---
+
+
+def _unconfigured_agent_service() -> AgentService:
+    """AgentService real com config sem credencial (o agente não inicializa)."""
+    from app.core.config import Settings
+
+    return AgentService(
+        memory_service=AsyncMock(),  # type: ignore[arg-type]
+        config=Settings(openai_api_key="", openai_base_url=None),
+    )
+
+
+def test_chat_returns_503_when_provider_is_not_configured() -> None:
+    """Regressão: a dependência levantava na resolução e virava 500 cru."""
+    app.dependency_overrides[get_agent_service] = _unconfigured_agent_service
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 503, resp.text
+        assert "provedor" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_stream_emits_error_event_when_provider_is_not_configured() -> None:
+    app.dependency_overrides[get_agent_service] = _unconfigured_agent_service
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat/stream", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 200
+        assert '"type": "error"' in resp.text
+        assert "provedor" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+# --- Grafia canônica de tópico no POST /api/memories ---
+
+
+def test_create_memory_echoes_canonical_topic() -> None:
+    """Tópico com caixa diferente da existente é gravado com a grafia já usada."""
+    memory = _memory_mock()
+    memory.canonical_topic.side_effect = None
+    memory.canonical_topic.return_value = "fastapi"  # grafia já existente
+    memory.store.return_value = ("novo-id", True)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/memories",
+            json={"text": "sobre DI", "topic": "FastAPI", "source": "livro", "session_id": "s1"},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["metadata"]["topic"] == "fastapi"
+        memory.canonical_topic.assert_awaited_once_with("FastAPI")
+        payload = memory.store.await_args.args[1]
+        assert payload.topic == "fastapi"
+    finally:
+        app.dependency_overrides.clear()
+
+
+# --- Limiar do recall na busca HTTP ---
+
+
+def test_search_uses_configured_recall_threshold(monkeypatch) -> None:
+    """Sem `min_score` na query, a rota usa o limiar configurado (não um 0.7 fixo)."""
+    from types import SimpleNamespace
+
+    memory = _memory_mock()
+    memory.recall.return_value = []
+    monkeypatch.setattr(
+        "app.api.routers.memories.settings",
+        SimpleNamespace(recall_score_threshold=0.42),
+    )
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/search?q=di")
+        assert resp.status_code == 200, resp.text
+        memory.recall.assert_awaited_once_with("di", 10, 0.42, None, session_id=None)
+    finally:
+        app.dependency_overrides.clear()
+
+
 # --- Renomear tópico (PATCH /api/topics) ---
 
 
@@ -511,6 +601,19 @@ def test_rename_topic_returns_new_name_and_count() -> None:
         assert resp.json() == {"topic": "FastAPI DI", "updated": 2}
         # O nome é normalizado (trim) antes de chegar ao serviço.
         memory.rename_topic.assert_awaited_once_with("fastapi", "FastAPI DI")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_search_honours_explicit_min_score() -> None:
+    memory = _memory_mock()
+    memory.recall.return_value = []
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/search?q=di&min_score=0.9")
+        assert resp.status_code == 200, resp.text
+        memory.recall.assert_awaited_once_with("di", 10, 0.9, None, session_id=None)
     finally:
         app.dependency_overrides.clear()
 

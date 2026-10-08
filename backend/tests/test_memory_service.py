@@ -324,6 +324,61 @@ async def test_delete_session_degrades_on_qdrant_offline() -> None:
     assert True
 
 
+# --- Grafia canônica de tópico (evita "FastAPI" + "fastapi" na sidebar) ---
+
+
+async def test_canonical_topic_reuses_existing_spelling() -> None:
+    service, _embeddings, store = make_service()
+    store.list_topics.return_value = ["fastapi", "react"]
+
+    assert await service.canonical_topic("FastAPI") == "fastapi"
+
+
+async def test_canonical_topic_keeps_brand_new_topic_as_typed() -> None:
+    service, _embeddings, store = make_service()
+    store.list_topics.return_value = ["fastapi"]
+
+    assert await service.canonical_topic("  SQL  ") == "SQL"
+
+
+async def test_canonical_topic_ignores_whitespace_only_input() -> None:
+    service, _embeddings, store = make_service()
+
+    assert await service.canonical_topic("   ") == ""
+    store.list_topics.assert_not_awaited()
+
+
+async def test_canonical_topic_caches_the_topic_snapshot() -> None:
+    """Sem cache, cada gravação custaria um scroll do Qdrant."""
+    service, _embeddings, store = make_service()
+    store.list_topics.return_value = ["fastapi"]
+
+    await service.canonical_topic("FastAPI")
+    await service.canonical_topic("FASTAPI")
+
+    store.list_topics.assert_awaited_once()
+
+
+async def test_store_invalidates_topic_cache() -> None:
+    """Tópico novo gravado por outra via precisa aparecer na próxima canonicalização."""
+    service, _embeddings, store = make_service()
+    store.list_topics.return_value = ["fastapi"]
+
+    await service.canonical_topic("fastapi")
+    await service.store("texto", METADATA)
+    await service.canonical_topic("fastapi")
+
+    assert store.list_topics.await_count == 2
+
+
+async def test_canonical_topic_survives_qdrant_offline() -> None:
+    """Sem conseguir ler os tópicos, devolve o nome apenas normalizado."""
+    service, _embeddings, store = make_service()
+    store.list_topics.side_effect = ConnectionError("qdrant offline")
+
+    assert await service.canonical_topic("  FastAPI  ") == "FastAPI"
+
+
 # --- Renomear tópico ---
 
 

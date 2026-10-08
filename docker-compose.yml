@@ -34,8 +34,16 @@ x-backend-env: &backend-env
   AGENT_MODEL: ${AGENT_MODEL:-gpt-4o-mini}
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
+  # Desligado por default: com o profile observability fora do ar o exporter só
+  # gera "Failed to export span batch" a cada span. Ligue junto com o profile.
+  LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
   LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-local}
   LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-local}
+  # Recall do chat: vazio = default por provedor de embedding (0.7 OpenAI, 0.55 local).
+  RECALL_MIN_SCORE: ${RECALL_MIN_SCORE:-}
+  RECALL_LIMIT: ${RECALL_LIMIT:-5}
+  # all (default) = enxerga memórias de todas as sessões; session = só a atual.
+  RECALL_SCOPE: ${RECALL_SCOPE:-all}
   LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-study-memory}
   LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-study-memory}
 
@@ -84,7 +92,12 @@ services:
       retries: 5
 
   langfuse:
-    image: langfuse/langfuse:3
+    # v2 (não v3) de propósito: o v3 exige ClickHouse + armazenamento S3-compatível
+    # (o Postgres só guarda metadados e o Redis a fila). Sem isso o container
+    # subia em loop com "Error: CLICKHOUSE_URL is not configured" e o profile
+    # `observability` não funcionava. Para v3: adicione o serviço do ClickHouse,
+    # defina CLICKHOUSE_URL/CLICKHOUSE_USER/CLICKHOUSE_PASSWORD e troque a tag.
+    image: langfuse/langfuse:2
     container_name: sma-langfuse
     restart: unless-stopped
     profiles: [observability]

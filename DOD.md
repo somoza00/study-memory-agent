@@ -29,16 +29,35 @@ Pydantic AI, SSE e observabilidade Langfuse.
 🔴 **Blocking**
 - [x] `/api/health` reporta o Qdrant (`degraded` se fora) sem 500.
 - [x] `API_KEY` obrigatória em produção (fail-closed no `Settings`).
-- [x] Sem `500` cru nos endpoints de chat/memória (502/503 estruturados).
+- [x] Sem `500` cru nos endpoints de chat/memória (502/503 estruturados) —
+      inclui o caso "provedor do LLM não configurado": o agente guarda a falha de
+      inicialização e o chat responde **503** com o motivo, em vez do 500 que
+      subia da resolução da dependência do FastAPI.
 
 🟡 **Importante**
-- [x] `OPENAI_BASE_URL` configurável (agente + embeddings) — roda em endpoint
-      OpenAI-compatível (Ollama/vLLM/LiteLLM), não só na OpenAI.
+- [x] `OPENAI_BASE_URL` + `OPENAI_EXTRA_HEADERS` (agente) e
+      `EMBEDDING_PROVIDER`/`EMBEDDING_BASE_URL`/`EMBEDDING_DIM` (embeddings) —
+      roda em endpoint OpenAI-compatível (OpenCode/Ollama/vLLM/LiteLLM) e com
+      embeddings locais (ONNX), sem depender da OpenAI.
 - [x] `VectorStore` self-heal (recria a collection após wipe/falha).
 - [x] Cobertura de testes de frontend (Vitest + Testing Library; `npm test`).
 - [x] Stack Langfuse (postgres/redis/langfuse) atrás do profile `observability`
-      do compose — `docker compose up` sobe só qdrant+backend+frontend.
+      do compose — `docker compose up` sobe só qdrant+backend+frontend. A imagem
+      está fixada na **v2** (o v3 exige ClickHouse + S3 + worker) e o profile
+      sobe de fato (verificado: `langfuse 2.95.11`, `/api/public/health` OK).
+      Limite conhecido: a exportação OTLP do agente só existe no v3 — com a v2,
+      `LANGFUSE_ENABLED=true` não entrega traces (endpoint responde 404).
+- [x] Recall configurável e coerente: `RECALL_MIN_SCORE` (default por provedor
+      de embedding: 0.7 OpenAI / 0.55 local) e `RECALL_SCOPE` (default `all`) —
+      antes o corte era 0.7 fixo e o recall filtrava pela sessão atual, o que
+      fazia o agente esquecer tudo entre conversas.
+- [x] Grafia canônica de tópico: "FastAPI" e "fastapi" não viram dois tópicos.
+- [x] Cliente do Qdrant alinhado ao servidor do compose (`qdrant-client<1.13`).
+- [x] Frontend: sidebar tenta de novo quando o backend ainda está subindo e
+      explica a lista vazia em vez de ficar em branco sem motivo.
 
 🟢 **Nice-to-have**
 - [ ] Autenticação de usuário / multi-tenant (hoje `X-API-Key` compartilhada).
 - [ ] Paginação (`offset`) na listagem de memórias; edição de memória (PATCH).
+- [ ] Seletor de modelo na UI (o provedor expõe a lista em `/v1/models`; o
+      Pydantic AI aceita override por execução via `agent.run(model=...)`).

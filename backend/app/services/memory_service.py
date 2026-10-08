@@ -10,6 +10,7 @@ sem vetor não há o que persistir ou buscar.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import uuid4
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 # Limite de caracteres do texto de uma memória: trunca ANTES do embedding para
 # conter o custo (tokens) e evitar vetor diluído por um texto gigante.
 _MAX_TEXT_CHARS = 4000
+
+# Cache curto da lista de tópicos usada para canonicalizar a grafia: evita um
+# scroll do Qdrant a cada gravação sem deixar a lista velha por muito tempo.
+_TOPIC_CACHE_TTL = 30.0
+_TOPIC_SCAN_LIMIT = 200
 
 
 class RenameTopicStatus(StrEnum):
@@ -50,6 +56,8 @@ class MemoryService:
     def __init__(self, embedding_service: EmbeddingService, vector_store: VectorStore) -> None:
         self._embeddings = embedding_service
         self._store = vector_store
+        # Snapshot (timestamp, {casefold: grafia}) dos tópicos existentes.
+        self._topic_spellings: tuple[float, dict[str, str]] | None = None
 
     async def store(self, text: str, metadata: MemoryMetadata) -> tuple[str, bool]:
         """Gera o embedding de `text`, persiste no Qdrant e retorna (id, persisted).
@@ -69,6 +77,7 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível: memória %s NÃO foi persistida", memory_id)
             return memory_id, False
+        self._invalidate_topic_cache()  # o tópico pode ser novo
         return memory_id, True
 
     async def recall(
@@ -102,6 +111,35 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível ou payload inválido: recall retornando vazio")
             return []
+
+    async def canonical_topic(self, topic: str) -> str:
+        """Resolve a grafia canônica de `topic` entre os tópicos já existentes.
+
+        O agente escolhe a string do tópico livremente, então "FastAPI" e
+        "fastapi" viravam dois tópicos separados na sidebar (mesmo assunto
+        duplicado). Aqui reaproveitamos a grafia de um tópico existente quando a
+        diferença é só caixa/espaços; o tópico realmente novo passa como veio.
+        Devolve o nome normalizado (trim) se o armazenamento estiver fora.
+        """
+        cleaned = topic.strip()
+        if not cleaned:
+            return cleaned
+        key = cleaned.casefold()
+        now = time.monotonic()
+        cached = self._topic_spellings
+        if cached is None or now - cached[0] > _TOPIC_CACHE_TTL:
+            try:
+                topics = await self._store.list_topics(_TOPIC_SCAN_LIMIT)
+            except Exception:
+                logger.warning("Qdrant indisponível: não foi possível canonicalizar o tópico")
+                return cleaned
+            cached = (now, {t.casefold(): t for t in topics})
+            self._topic_spellings = cached
+        return cached[1].get(key, cleaned)
+
+    def _invalidate_topic_cache(self) -> None:
+        """Descarta o snapshot de tópicos (após gravar/renomear/remover)."""
+        self._topic_spellings = None
 
     async def rename_topic(self, topic: str, name: str) -> RenameTopicResult:
         """Renomeia um tópico em todas as memórias que o usam.
@@ -189,6 +227,7 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível: memória %s não foi removida", memory_id)
             return False
+        self._invalidate_topic_cache()  # o tópico pode ter ficado vazio
         return True
 
     async def delete_session(self, session_id: str) -> bool:
@@ -202,6 +241,7 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível: delete_session (%s) não executado", session_id)
             return False
+        self._invalidate_topic_cache()
         return True
 
     async def get(self, memory_id: str) -> StoredMemory | None:
