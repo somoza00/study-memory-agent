@@ -50,6 +50,22 @@ class RenameTopicResult:
     updated: int = 0
 
 
+class UpdateMemoryStatus(StrEnum):
+    """Desfecho de um update de memória (o router traduz para o status HTTP)."""
+
+    UPDATED = "updated"
+    NOT_FOUND = "not_found"  # a memória não existe
+    UNAVAILABLE = "unavailable"  # armazenamento vetorial fora do ar
+
+
+@dataclass(frozen=True)
+class UpdateMemoryResult:
+    """Resultado do `update`: desfecho + a memória já com o texto novo."""
+
+    status: UpdateMemoryStatus
+    memory: StoredMemory | None = None
+
+
 class MemoryService:
     """Serviço de domínio para persistir e recuperar memórias de estudo."""
 
@@ -255,6 +271,37 @@ class MemoryService:
         except Exception:
             logger.warning("Qdrant indisponível ou payload inválido: get retornando None")
             return None
+
+    async def update(self, memory_id: str, text: str) -> UpdateMemoryResult:
+        """Atualiza o texto de uma memória, re-embedando no MESMO id.
+
+        Preserva a metadata (topic/source/date/session_id) e o id: só o texto e o
+        vetor mudam — editar o texto não deve reclassificar nem "mover" a memória.
+        Desfechos: `NOT_FOUND` se a memória não existe, `UNAVAILABLE` se o Qdrant
+        estiver fora (o router espelha em 503, como `delete`). Uma falha de
+        embedding NÃO é mascarada — propaga, porque sem vetor não há update (mesma
+        regra do `store`).
+        """
+        text = text[:_MAX_TEXT_CHARS]
+        try:
+            record = await self._store.get(memory_id)
+        except Exception:
+            logger.warning("Qdrant indisponível: memória %s não foi atualizada", memory_id)
+            return UpdateMemoryResult(status=UpdateMemoryStatus.UNAVAILABLE)
+        if record is None:
+            return UpdateMemoryResult(status=UpdateMemoryStatus.NOT_FOUND)
+        metadata = MemoryMetadata.model_validate(record.payload or {})
+        vector = await self._embeddings.embed(text)
+        payload = {"text": text, **metadata.model_dump(mode="json")}
+        try:
+            await self._store.upsert(memory_id, vector, payload)
+        except Exception:
+            logger.warning("Qdrant indisponível: memória %s NÃO foi atualizada", memory_id)
+            return UpdateMemoryResult(status=UpdateMemoryStatus.UNAVAILABLE)
+        return UpdateMemoryResult(
+            status=UpdateMemoryStatus.UPDATED,
+            memory=StoredMemory(id=memory_id, text=text, metadata=metadata),
+        )
 
 
 def _to_memory_result(point: ScoredPoint) -> MemoryResult:

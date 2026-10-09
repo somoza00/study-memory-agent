@@ -668,3 +668,93 @@ def test_rename_topic_rejects_blank_name() -> None:
         memory.rename_topic.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Editar memória (PATCH /api/memories/{id}) ---
+
+
+def _updated() -> StoredMemory:
+    return StoredMemory(
+        id="abc",
+        text="texto novo",
+        metadata=MemoryMetadata(
+            topic="fastapi", source="livro", date=date(2026, 8, 25), session_id="s1"
+        ),
+    )
+
+
+def test_update_memory_returns_updated_memory() -> None:
+    """PATCH devolve 200 com a memória já contendo o texto novo."""
+    from app.services.memory_service import UpdateMemoryResult, UpdateMemoryStatus
+
+    memory = _memory_mock()
+    memory.update.return_value = UpdateMemoryResult(
+        status=UpdateMemoryStatus.UPDATED, memory=_updated()
+    )
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/memories/abc", json={"text": "texto novo"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["text"] == "texto novo"
+        memory.update.assert_awaited_once_with("abc", "texto novo")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_memory_404_when_missing() -> None:
+    from app.services.memory_service import UpdateMemoryResult, UpdateMemoryStatus
+
+    memory = _memory_mock()
+    memory.update.return_value = UpdateMemoryResult(status=UpdateMemoryStatus.NOT_FOUND)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/memories/xyz", json={"text": "novo"})
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_memory_503_when_storage_unavailable() -> None:
+    """Qdrant offline ⇒ 503 (não mente sucesso nem 404)."""
+    from app.services.memory_service import UpdateMemoryResult, UpdateMemoryStatus
+
+    memory = _memory_mock()
+    memory.update.return_value = UpdateMemoryResult(status=UpdateMemoryStatus.UNAVAILABLE)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/memories/abc", json={"text": "novo"})
+        assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_memory_502_when_embedding_fails() -> None:
+    """Falha de embedding (OpenAI) no PATCH vira 502, não 500 cru."""
+    from openai import OpenAIError
+
+    memory = _memory_mock()
+    memory.update.side_effect = OpenAIError("embedding api down")
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/memories/abc", json={"text": "novo"})
+        assert resp.status_code == 502
+        assert "embedding api down" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_memory_rejects_blank_text() -> None:
+    """Texto só com espaços é rejeitado (422) antes de tocar o serviço."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch("/api/memories/abc", json={"text": "   "})
+        assert resp.status_code == 422
+        memory.update.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
