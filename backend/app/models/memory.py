@@ -78,6 +78,24 @@ class MemoryCreated(BaseModel):
     metadata: MemoryMetadata
 
 
+class MemoryUpdate(BaseModel):
+    """Payload do `PATCH /api/memories/{memory_id}` (edita o texto de uma memória).
+
+    Só o texto muda: a metadata (topic/source/date/session_id) e o id são
+    preservados — editar o texto não deve reclassificar nem "mover" a memória.
+    """
+
+    text: str = Field(..., min_length=1, max_length=4000, description="Novo texto da memória.")
+
+    @field_validator("text")
+    @classmethod
+    def _reject_blank_text(cls, value: str) -> str:
+        """Texto só com espaços viraria embedding-lixo; rejeita (422) antes."""
+        if not value.strip():
+            raise ValueError("text não pode conter apenas espaços")
+        return value
+
+
 class TopicCount(BaseModel):
     """Um tópico e quantas memórias persistidas ele tem (para a sidebar)."""
 

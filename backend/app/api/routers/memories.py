@@ -5,6 +5,7 @@ Expõe:
 - `GET    /api/topics`                    → tópicos distintos existentes
 - `PATCH  /api/topics`                    → renomeia um tópico (renomear da sidebar)
 - `DELETE /api/memories/{id}`            → remove uma memória pelo id
+- `PATCH  /api/memories/{id}`            → edita o texto de uma memória
 """
 
 from __future__ import annotations
@@ -22,12 +23,17 @@ from app.models.memory import (
     MemoryCreated,
     MemoryMetadata,
     MemoryResult,
+    MemoryUpdate,
     StoredMemory,
     TopicCount,
     TopicRename,
     TopicRenamed,
 )
-from app.services.memory_service import MemoryService, RenameTopicStatus
+from app.services.memory_service import (
+    MemoryService,
+    RenameTopicStatus,
+    UpdateMemoryStatus,
+)
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -161,6 +167,40 @@ async def delete_memory(
             detail="armazenamento indisponível: não foi possível remover a memória",
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/memories/{memory_id}", response_model=StoredMemory)
+async def update_memory(
+    memory_id: str,
+    payload: MemoryUpdate,
+    memory: MemoryService = Depends(get_memory_service),
+) -> StoredMemory:
+    """Edita o texto de uma memória, re-embedando no MESMO id.
+
+    Preserva a metadata e o id; só o texto (e o vetor) mudam — editar o texto não
+    deve reclassificar nem "mover" a memória. Desfechos: 200 com a memória
+    atualizada; 404 se não existir; 503 se o armazenamento estiver indisponível;
+    502 se o embedding falhar (nunca 500 cru — regra do AGENTS.md).
+    """
+    try:
+        result = await memory.update(memory_id, payload.text)
+    except OpenAIError as exc:
+        # Espelha create_memory: falha de embedding (OpenAI) vira 502, não 500.
+        raise HTTPException(
+            status_code=502, detail=f"Falha ao gerar embedding: {exc}"
+        ) from exc
+    except Exception as exc:
+        logger.exception("PATCH /api/memories falhou com erro não-OpenAI")
+        raise HTTPException(status_code=502, detail=f"Erro interno: {exc}") from exc
+    if result.status is UpdateMemoryStatus.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="memória não encontrada")
+    if result.status is UpdateMemoryStatus.UNAVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="armazenamento indisponível: não foi possível atualizar a memória",
+        )
+    assert result.memory is not None
+    return result.memory
 
 
 @router.get("/memories/{memory_id}", response_model=StoredMemory)

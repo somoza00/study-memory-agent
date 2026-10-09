@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 from qdrant_client.models import Record, ScoredPoint
 
 from app.models.memory import MemoryMetadata
-from app.services.memory_service import MemoryService, RenameTopicStatus
+from app.services.memory_service import MemoryService, RenameTopicStatus, UpdateMemoryStatus
 
 METADATA = MemoryMetadata(topic="fastapi", source="livro", date=date(2026, 8, 25), session_id="s1")
 VECTOR = [0.1, 0.2, 0.3]
@@ -443,3 +443,73 @@ async def test_rename_topic_degrades_when_qdrant_offline() -> None:
     result = await service.rename_topic("fastapi", "novo")
 
     assert result.status is RenameTopicStatus.UNAVAILABLE
+
+
+# --- Editar memória (PATCH /api/memories/{id}) ---
+
+_RECORD_PAYLOAD = {
+    "text": "texto antigo",
+    "topic": "fastapi",
+    "source": "livro",
+    "date": "2026-08-25",
+    "session_id": "s1",
+}
+
+
+async def test_update_reembeds_and_preserves_metadata() -> None:
+    """Re-embeda o texto novo no MESMO id, preservando a metadata."""
+    service, embeddings, store = make_service()
+    store.get.return_value = Record(id="abc", payload=_RECORD_PAYLOAD)
+
+    result = await service.update("abc", "texto novo")
+
+    assert result.status is UpdateMemoryStatus.UPDATED
+    assert result.memory is not None
+    assert result.memory.id == "abc"
+    assert result.memory.text == "texto novo"
+    assert result.memory.metadata.topic == "fastapi"
+    embeddings.embed.assert_awaited_once_with("texto novo")
+    called_id, called_vector, called_payload = store.upsert.await_args.args
+    assert called_id == "abc"
+    assert called_vector == VECTOR
+    assert called_payload["text"] == "texto novo"
+    assert called_payload["topic"] == "fastapi"  # metadata preservada
+    assert called_payload["session_id"] == "s1"
+
+
+async def test_update_not_found_when_missing() -> None:
+    service, _embeddings, store = make_service()
+    store.get.return_value = None
+
+    result = await service.update("abc", "novo")
+
+    assert result.status is UpdateMemoryStatus.NOT_FOUND
+    store.upsert.assert_not_awaited()
+
+
+async def test_update_unavailable_when_qdrant_offline_on_read() -> None:
+    service, _embeddings, store = make_service()
+    store.get.side_effect = ConnectionError("qdrant offline")
+
+    result = await service.update("abc", "novo")
+
+    assert result.status is UpdateMemoryStatus.UNAVAILABLE
+
+
+async def test_update_unavailable_when_qdrant_offline_on_write() -> None:
+    service, _embeddings, store = make_service()
+    store.get.return_value = Record(id="abc", payload=_RECORD_PAYLOAD)
+    store.upsert.side_effect = ConnectionError("qdrant offline")
+
+    result = await service.update("abc", "novo")
+
+    assert result.status is UpdateMemoryStatus.UNAVAILABLE
+
+
+async def test_update_truncates_very_long_text() -> None:
+    service, embeddings, store = make_service()
+    store.get.return_value = Record(id="abc", payload=_RECORD_PAYLOAD)
+
+    await service.update("abc", "x" * 10_000)
+
+    assert len(embeddings.embed.await_args.args[0]) <= 4000
