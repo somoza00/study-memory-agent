@@ -758,3 +758,35 @@ def test_update_memory_rejects_blank_text() -> None:
         memory.update.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Busca (GET /api/memories/search): falha de embedding nunca vira 500 ---
+
+
+def test_search_memories_returns_502_when_embedding_fails() -> None:
+    """Falha de embedding (OpenAI) na busca vira 502, não o 500 que saía cru."""
+    from openai import OpenAIError
+
+    memory = _memory_mock()
+    memory.recall.side_effect = OpenAIError("embedding api down")
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/search?q=di")
+        assert resp.status_code == 502
+        assert "embedding api down" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_search_memories_returns_502_on_non_openai_failure() -> None:
+    """Erro não-OpenAI na busca também vira 502 estruturado (nunca 500 cru)."""
+    memory = _memory_mock()
+    memory.recall.side_effect = RuntimeError("boom")
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/search?q=di")
+        assert resp.status_code == 502
+    finally:
+        app.dependency_overrides.clear()

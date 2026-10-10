@@ -445,6 +445,20 @@ async def test_rename_topic_degrades_when_qdrant_offline() -> None:
     assert result.status is RenameTopicStatus.UNAVAILABLE
 
 
+async def test_rename_topic_invalidates_topic_cache() -> None:
+    """Renomear precisa esquecer a grafia antiga no cache (senão o tópico 'ressuscita')."""
+    service, _embeddings, store = make_service()
+    store.list_topics.return_value = ["fastapi"]
+    store.count_by_topic.return_value = 0  # nome novo ainda não existe
+    store.rename_topic.return_value = 2
+
+    await service.canonical_topic("fastapi")  # popula o cache de grafia
+    await service.rename_topic("fastapi", "FastAPI DI")
+    await service.canonical_topic("fastapi")  # deve re-escanear (cache invalidado)
+
+    assert store.list_topics.await_count == 2
+
+
 # --- Editar memória (PATCH /api/memories/{id}) ---
 
 _RECORD_PAYLOAD = {

@@ -181,6 +181,10 @@ class MemoryService:
             return RenameTopicResult(status=RenameTopicStatus.UNAVAILABLE)
         if updated == 0:
             return RenameTopicResult(status=RenameTopicStatus.NOT_FOUND)
+        # O nome antigo não pode "ressuscitar": o cache de grafia (TTL 30s) ainda
+        # mapeia topic→topic, então um store com a grafia antiga recriaria o
+        # tópico recém-renomeado. store/delete/delete_session já invalidam.
+        self._invalidate_topic_cache()
         return RenameTopicResult(status=RenameTopicStatus.RENAMED, updated=updated)
 
     async def list_topics(self, limit: int = 50) -> list[str]:
