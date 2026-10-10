@@ -104,9 +104,21 @@ async def search_memories(
     """Busca semântica nas memórias — expõe o `recall` (usado pelo agente) via HTTP.
 
     Declarada ANTES de `/memories/{memory_id}` para não ser capturada como id.
+
+    Falha de embedding (OpenAI) vira 502 estruturado, espelhando `/api/chat` e os
+    endpoints de memória. Sem isto, o `embed` do recall (que roda FORA do try do
+    serviço) subia cru e a rota devolvia 500 — violando o "nunca 500".
     """
     threshold = settings.recall_score_threshold if min_score is None else min_score
-    return await memory.recall(q, limit, threshold, topic, session_id=session_id)
+    try:
+        return await memory.recall(q, limit, threshold, topic, session_id=session_id)
+    except OpenAIError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Falha ao gerar embedding: {exc}"
+        ) from exc
+    except Exception as exc:
+        logger.exception("GET /api/memories/search falhou com erro não-OpenAI")
+        raise HTTPException(status_code=502, detail=f"Erro interno: {exc}") from exc
 
 
 @router.get("/topics", response_model=list[str])
