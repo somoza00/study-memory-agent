@@ -217,23 +217,25 @@ class MemoryService:
         topic: str | None = None,
         limit: int = 20,
         session_id: str | None = None,
-    ) -> list[StoredMemory]:
-        """Lista memórias persistidas, opcionalmente filtradas por `topic` e `session_id`.
+        cursor: str | None = None,
+    ) -> tuple[list[StoredMemory], str | None]:
+        """Lista memórias persistidas (filtros `topic`/`session_id`), paginadas por cursor.
 
-        Retorna lista vazia se o Qdrant estiver indisponível.
+        Devolve `(memórias, próximo_cursor)`; `([], None)` se o Qdrant estiver
+        indisponível. O cursor é opaco (ver `VectorStore.list`).
         """
         try:
-            records = await self._store.list(limit, topic, session_id)
+            records, next_page = await self._store.list(limit, topic, session_id, cursor)
             out: list[StoredMemory] = []
             for record in records:
                 try:
                     out.append(_to_stored_memory(record))
                 except Exception:
                     logger.warning("memória %s ignorada: payload malformado", record.id)
-            return out
+            return out, next_page
         except Exception:
             logger.warning("Qdrant indisponível ou payload inválido: list retornando vazio")
-            return []
+            return [], None
 
     async def delete(self, memory_id: str) -> bool:
         """Remove uma memória pelo id.
