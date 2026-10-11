@@ -224,9 +224,19 @@ class VectorStore:
         return total
 
     async def list(
-        self, limit: int, topic: str | None = None, session_id: str | None = None
-    ) -> list[Record]:
-        """Lista memórias, filtradas por `topic` e `session_id`, limitadas a `limit`."""
+        self,
+        limit: int,
+        topic: str | None = None,
+        session_id: str | None = None,
+        cursor: str | None = None,
+    ) -> tuple[list[Record], str | None]:
+        """Lista memórias (filtradas por `topic`/`session_id`), até `limit`, a partir do
+        `cursor` opaco da página anterior.
+
+        Devolve `(registros, próximo_cursor)`. O cursor é o `next_page_offset` do
+        Qdrant (um PointId), NÃO um número "pular N": o `scroll` pagina por cursor,
+        não por skip inteiro.
+        """
         conditions = []
         if topic is not None:
             conditions.append(FieldCondition(key="topic", match=MatchValue(value=topic)))
@@ -241,17 +251,18 @@ class VectorStore:
         )
         try:
             await self._ensure_collection()
-            records, _next_page = await self._client.scroll(
+            records, next_page = await self._client.scroll(
                 collection_name=self._collection,
                 scroll_filter=scroll_filter,
                 limit=limit,
+                offset=cursor,
                 with_payload=True,
                 with_vectors=False,
             )
         except Exception:
             self._invalidate_collection()
             raise
-        return records
+        return records, (str(next_page) if next_page is not None else None)
 
     async def ping(self) -> bool:
         """Retorna `True` se o Qdrant responder; `False` em qualquer erro (não levanta)."""

@@ -1,7 +1,7 @@
 """Router de memórias: listagem, tópicos e remoção.
 
 Expõe:
-- `GET    /api/memories?topic=&limit=`   → lista memórias (filtro opcional por tópico)
+- `GET    /api/memories?topic=&limit=&cursor=` → lista memórias (filtros + paginação por cursor)
 - `GET    /api/topics`                    → tópicos distintos existentes
 - `PATCH  /api/topics`                    → renomeia um tópico (renomear da sidebar)
 - `DELETE /api/memories/{id}`            → remove uma memória pelo id
@@ -11,9 +11,11 @@ Expõe:
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from openai import OpenAIError
 
 from app.api.deps import get_memory_service, get_vector_store
@@ -81,10 +83,31 @@ async def list_memories(
         default=None, max_length=200, description="Filtra memórias por sessão de conversa."
     ),
     limit: int = Query(default=20, ge=1, le=100, description="Quantidade máxima de itens."),
+    cursor: str | None = Query(
+        default=None,
+        max_length=64,
+        description="Cursor opaco da página anterior (header X-Next-Cursor).",
+    ),
     memory: MemoryService = Depends(get_memory_service),
-) -> list[StoredMemory]:
-    """Lista memórias persistidas, opcionalmente filtradas por `topic` e/ou `session_id`."""
-    return await memory.list(topic=topic, limit=limit, session_id=session_id)
+) -> Response:
+    """Lista memórias persistidas, filtradas por `topic` e/ou `session_id`.
+
+    Paginação por CURSOR opaco (não offset inteiro): o `scroll` do Qdrant pagina
+    por cursor, não por "pular N". Quando há mais páginas, o próximo cursor vem no
+    header `X-Next-Cursor`, a passar de volta em `?cursor=`. Cursor malformado → 422.
+    """
+    if cursor is not None:
+        try:
+            uuid.UUID(cursor)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="cursor inválido") from exc
+    items, next_cursor = await memory.list(
+        topic=topic, limit=limit, session_id=session_id, cursor=cursor
+    )
+    headers = {"X-Next-Cursor": next_cursor} if next_cursor else None
+    return JSONResponse(
+        content=[item.model_dump(mode="json") for item in items], headers=headers
+    )
 
 
 @router.get("/memories/search", response_model=list[MemoryResult])

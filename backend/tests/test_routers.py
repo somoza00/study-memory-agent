@@ -39,7 +39,7 @@ def _memory_mock() -> AsyncMock:
         topic="fastapi", source="livro", date=date(2026, 8, 25), session_id="s1"
     )
     memory = AsyncMock()
-    memory.list.return_value = [StoredMemory(id="abc", text="texto", metadata=metadata)]
+    memory.list.return_value = ([StoredMemory(id="abc", text="texto", metadata=metadata)], None)
     memory.list_topics.return_value = ["fastapi", "react"]
     memory.delete.return_value = True
     memory.delete_session.return_value = True
@@ -788,5 +788,41 @@ def test_search_memories_returns_502_on_non_openai_failure() -> None:
         client = TestClient(app)
         resp = client.get("/api/memories/search?q=di")
         assert resp.status_code == 502
+    finally:
+        app.dependency_overrides.clear()
+
+
+# --- Paginação por cursor da listagem (GET /api/memories) ---
+
+
+def test_list_memories_exposes_next_cursor_header() -> None:
+    """Quando há mais páginas, o próximo cursor vem no header X-Next-Cursor."""
+    memory = _memory_mock()
+    memory.list.return_value = ([_updated()], "11111111-1111-1111-1111-111111111111")
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories?limit=1")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers.get("x-next-cursor") == "11111111-1111-1111-1111-111111111111"
+        assert resp.json()[0]["id"] == "abc"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_list_memories_forwards_cursor_and_rejects_malformed() -> None:
+    """Cursor válido é repassado; malformado vira 422 e nem chega ao serviço."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        valid = "11111111-1111-1111-1111-111111111111"
+        ok = client.get(f"/api/memories?cursor={valid}")
+        assert ok.status_code == 200, ok.text
+        assert memory.list.await_args.kwargs["cursor"] == valid
+
+        bad = client.get("/api/memories?cursor=not-a-uuid")
+        assert bad.status_code == 422
+        memory.list.assert_awaited_once()  # o malformado nem chega ao serviço
     finally:
         app.dependency_overrides.clear()

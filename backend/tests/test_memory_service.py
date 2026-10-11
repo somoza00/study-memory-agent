@@ -171,43 +171,58 @@ async def test_list_topics_degrades_to_empty() -> None:
 
 async def test_list_delegates_and_converts_records() -> None:
     service, _embeddings, store = make_service()
-    store.list.return_value = [
-        Record(
-            id="abc",
-            payload={
-                "text": "sobre DI",
-                "topic": "fastapi",
-                "source": "livro",
-                "date": "2026-08-25",
-                "session_id": "s1",
-            },
-        )
-    ]
+    store.list.return_value = (
+        [
+            Record(
+                id="abc",
+                payload={
+                    "text": "sobre DI",
+                    "topic": "fastapi",
+                    "source": "livro",
+                    "date": "2026-08-25",
+                    "session_id": "s1",
+                },
+            )
+        ],
+        "cur-1",
+    )
 
-    results = await service.list(topic="fastapi", limit=5)
+    results, cursor = await service.list(topic="fastapi", limit=5)
 
     assert len(results) == 1
     assert results[0].id == "abc"
     assert results[0].metadata.topic == "fastapi"
     assert results[0].text == "sobre DI"
-    store.list.assert_awaited_once_with(5, "fastapi", None)
+    assert cursor == "cur-1"  # próximo cursor propagado
+    store.list.assert_awaited_once_with(5, "fastapi", None, None)
+
+
+async def test_list_forwards_cursor_to_the_store() -> None:
+    """O cursor opaco recebido é repassado ao `scroll` do Qdrant."""
+    service, _embeddings, store = make_service()
+    store.list.return_value = ([], None)
+
+    _, next_cursor = await service.list(limit=5, cursor="abc-uuid")
+
+    assert next_cursor is None
+    assert store.list.await_args.args == (5, None, None, "abc-uuid")
 
 
 async def test_list_filters_by_session() -> None:
     """`session_id` é repassado para a listagem (filtro de payload)."""
     service, _embeddings, store = make_service()
-    store.list.return_value = []
+    store.list.return_value = ([], None)
 
     await service.list(topic="fastapi", limit=5, session_id="s9")
 
-    assert store.list.await_args.args == (5, "fastapi", "s9")
+    assert store.list.await_args.args == (5, "fastapi", "s9", None)
 
 
 async def test_list_degrades_to_empty() -> None:
     service, _embeddings, store = make_service()
     store.list.side_effect = ConnectionError("qdrant offline")
 
-    assert await service.list() == []
+    assert await service.list() == ([], None)
 
 
 async def test_get_delegates_and_converts() -> None:
@@ -264,29 +279,32 @@ async def test_recall_degrades_to_empty_on_malformed_payload() -> None:
 async def test_list_degrades_to_empty_on_malformed_payload() -> None:
     """Payload malformado na listagem degrada para [] (nunca 500)."""
     service, _embeddings, store = make_service()
-    store.list.return_value = [Record(id="abc", payload={"text": "sobre DI"})]
+    store.list.return_value = ([Record(id="abc", payload={"text": "sobre DI"})], None)
 
-    assert await service.list() == []
+    assert await service.list() == ([], None)
 
 
 async def test_list_skips_corrupt_record_but_keeps_valid() -> None:
     """1 registro corrompido não esconde os válidos (skip por registro, não aborta o lote)."""
     service, _embeddings, store = make_service()
-    store.list.return_value = [
-        Record(id="ruim", payload={"text": "corrompido"}),
-        Record(
-            id="bom",
-            payload={
-                "text": "sobre DI",
-                "topic": "fastapi",
-                "source": "livro",
-                "date": "2026-08-25",
-                "session_id": "s1",
-            },
-        ),
-    ]
+    store.list.return_value = (
+        [
+            Record(id="ruim", payload={"text": "corrompido"}),
+            Record(
+                id="bom",
+                payload={
+                    "text": "sobre DI",
+                    "topic": "fastapi",
+                    "source": "livro",
+                    "date": "2026-08-25",
+                    "session_id": "s1",
+                },
+            ),
+        ],
+        None,
+    )
 
-    result = await service.list()
+    result, _cursor = await service.list()
 
     assert [m.id for m in result] == ["bom"]
 
