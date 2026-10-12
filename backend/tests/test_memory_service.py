@@ -545,3 +545,27 @@ async def test_update_truncates_very_long_text() -> None:
     await service.update("abc", "x" * 10_000)
 
     assert len(embeddings.embed.await_args.args[0]) <= 4000
+
+
+# --- Apagar tópico inteiro (DELETE /api/topics) ---
+
+
+async def test_delete_topic_delegates_and_invalidates_cache() -> None:
+    """Apagar um tópico remove por filtro e esquece a grafia no cache."""
+    service, _embeddings, store = make_service()
+    store.list_topics.return_value = ["fastapi"]
+
+    await service.canonical_topic("fastapi")  # popula o cache de grafia
+    ok = await service.delete_topic("fastapi")
+    await service.canonical_topic("fastapi")  # re-escaneia (cache invalidado)
+
+    assert ok is True
+    store.delete_by_topic.assert_awaited_once_with("fastapi")
+    assert store.list_topics.await_count == 2
+
+
+async def test_delete_topic_returns_false_when_qdrant_offline() -> None:
+    service, _embeddings, store = make_service()
+    store.delete_by_topic.side_effect = ConnectionError("qdrant offline")
+
+    assert await service.delete_topic("fastapi") is False

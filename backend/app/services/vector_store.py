@@ -150,6 +150,26 @@ class VectorStore:
             self._invalidate_collection()
             raise
 
+    async def delete_by_topic(self, topic: str) -> None:
+        """Remove todos os pontos cujo payload tem `topic` (filtro) — apaga o tópico inteiro.
+
+        Deleção idempotente: se o tópico não tiver pontos, nada é removido e nenhum
+        erro acontece (o router trata como sucesso).
+        """
+        try:
+            await self._ensure_collection()
+            await self._client.delete(
+                collection_name=self._collection,
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
+                    )
+                ),
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
+
     async def list_topics(self, limit: int = 50) -> list[str]:
         """Retorna até `limit` tópicos distintos presentes na collection.
 

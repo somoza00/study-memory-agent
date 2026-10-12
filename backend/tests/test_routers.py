@@ -826,3 +826,33 @@ def test_list_memories_forwards_cursor_and_rejects_malformed() -> None:
         memory.list.assert_awaited_once()  # o malformado nem chega ao serviço
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Apagar um tópico inteiro (DELETE /api/topics) ---
+
+
+def test_delete_topic_returns_204() -> None:
+    """DELETE /api/topics?topic= remove todas as memórias do tópico."""
+    memory = _memory_mock()
+    memory.delete_topic.return_value = True
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.delete("/api/topics?topic=fastapi")
+        assert resp.status_code == 204
+        memory.delete_topic.assert_awaited_once_with("fastapi")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_topic_503_when_storage_unavailable() -> None:
+    """Qdrant offline ⇒ DELETE /api/topics não mente 204."""
+    memory = _memory_mock()
+    memory.delete_topic.return_value = False
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.delete("/api/topics?topic=fastapi")
+        assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
