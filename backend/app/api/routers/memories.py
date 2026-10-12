@@ -4,6 +4,7 @@ Expõe:
 - `GET    /api/memories?topic=&limit=&cursor=` → lista memórias (filtros + paginação por cursor)
 - `GET    /api/topics`                    → tópicos distintos existentes
 - `PATCH  /api/topics`                    → renomeia um tópico (renomear da sidebar)
+- `DELETE /api/topics?topic=`             → remove todas as memórias de um tópico
 - `DELETE /api/memories/{id}`            → remove uma memória pelo id
 - `PATCH  /api/memories/{id}`            → edita o texto de uma memória
 """
@@ -188,6 +189,24 @@ async def rename_topic(
             detail=f"já existe um tópico chamado '{payload.name}'",
         )
     return TopicRenamed(topic=payload.name, updated=result.updated)
+
+
+@router.delete("/topics", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_topic(
+    topic: str = Query(..., min_length=1, max_length=120, description="Tópico a remover."),
+    memory: MemoryService = Depends(get_memory_service),
+) -> Response:
+    """Remove todas as memórias de um tópico (o "apagar tópico" da sidebar).
+
+    Idempotente: apagar um tópico inexistente também devolve 204. 503 se o
+    armazenamento não confirmou a remoção (não mente sucesso).
+    """
+    if not await memory.delete_topic(topic):
+        raise HTTPException(
+            status_code=503,
+            detail="armazenamento indisponível: não foi possível remover o tópico",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)

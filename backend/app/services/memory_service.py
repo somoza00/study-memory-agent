@@ -266,6 +266,21 @@ class MemoryService:
         self._invalidate_topic_cache()
         return True
 
+    async def delete_topic(self, topic: str) -> bool:
+        """Remove todas as memórias de um tópico (o "apagar tópico" da sidebar).
+
+        Retorna `True` se o armazenamento respondeu (mesmo que o tópico não
+        existisse — remoção idempotente); `False` se o Qdrant estava indisponível
+        (o router responde 503, como `delete`/`delete_session`).
+        """
+        try:
+            await self._store.delete_by_topic(topic)
+        except Exception:
+            logger.warning("Qdrant indisponível: tópico %s não foi removido", topic)
+            return False
+        self._invalidate_topic_cache()
+        return True
+
     async def get(self, memory_id: str) -> StoredMemory | None:
         """Retorna uma memória pelo id, ou `None` se não existir.
 
