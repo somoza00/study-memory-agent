@@ -237,6 +237,18 @@ class MemoryService:
             logger.warning("Qdrant indisponível ou payload inválido: list retornando vazio")
             return [], None
 
+    async def count(self, topic: str | None = None, session_id: str | None = None) -> int | None:
+        """Total de memórias (filtrado por `topic`/`session_id`); `None` se o Qdrant estiver fora.
+
+        Complementa a listagem paginada por cursor: o header X-Total-Count diz ao
+        cliente quantas memórias existem ao todo, não só quantas vieram na página.
+        """
+        try:
+            return await self._store.count(topic, session_id)
+        except Exception:
+            logger.warning("Qdrant indisponível: count retornando None")
+            return None
+
     async def delete(self, memory_id: str) -> bool:
         """Remove uma memória pelo id.
 

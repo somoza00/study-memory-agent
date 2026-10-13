@@ -201,6 +201,32 @@ class VectorStore:
             raise
         return sorted(topics)[:limit]
 
+    async def count(self, topic: str | None = None, session_id: str | None = None) -> int:
+        """Conta as memórias (filtradas por `topic`/`session_id`), exato.
+
+        Complementa a listagem paginada por cursor: o cliente sabe o TOTAL de
+        memórias que casam com o filtro, não só quantas vieram na página.
+        """
+        conditions: list[FieldCondition] = []
+        if topic is not None:
+            conditions.append(FieldCondition(key="topic", match=MatchValue(value=topic)))
+        if session_id is not None:
+            conditions.append(
+                FieldCondition(key="session_id", match=MatchValue(value=session_id))
+            )
+        count_filter: Filter | None = (
+            Filter(must=conditions) if conditions else None  # type: ignore[arg-type]
+        )
+        try:
+            await self._ensure_collection()
+            result = await self._client.count(
+                collection_name=self._collection, count_filter=count_filter, exact=True
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
+        return int(result.count)
+
     async def count_by_topic(self, topic: str) -> int:
         """Conta as memórias persistidas de um tópico (exato). Self-heal em falha."""
         try:
