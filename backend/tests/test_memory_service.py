@@ -569,3 +569,21 @@ async def test_delete_topic_returns_false_when_qdrant_offline() -> None:
     store.delete_by_topic.side_effect = ConnectionError("qdrant offline")
 
     assert await service.delete_topic("fastapi") is False
+
+
+# --- Contagem (X-Total-Count) ---
+
+
+async def test_count_delegates_to_store() -> None:
+    service, _embeddings, store = make_service()
+    store.count.return_value = 7
+
+    assert await service.count(topic="fastapi", session_id="s1") == 7
+    store.count.assert_awaited_once_with("fastapi", "s1")
+
+
+async def test_count_returns_none_when_qdrant_offline() -> None:
+    service, _embeddings, store = make_service()
+    store.count.side_effect = ConnectionError("qdrant offline")
+
+    assert await service.count() is None

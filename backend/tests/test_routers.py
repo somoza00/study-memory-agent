@@ -41,6 +41,7 @@ def _memory_mock() -> AsyncMock:
     memory = AsyncMock()
     memory.list.return_value = ([StoredMemory(id="abc", text="texto", metadata=metadata)], None)
     memory.list_topics.return_value = ["fastapi", "react"]
+    memory.count.return_value = 1
     memory.delete.return_value = True
     memory.delete_session.return_value = True
     # Default neutro: devolve o tópico apenas normalizado (testes específicos de
@@ -854,5 +855,37 @@ def test_delete_topic_503_when_storage_unavailable() -> None:
         client = TestClient(app)
         resp = client.delete("/api/topics?topic=fastapi")
         assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+# --- Total na listagem (X-Total-Count) ---
+
+
+def test_list_memories_exposes_total_count_header() -> None:
+    """A listagem traz X-Total-Count com o total de memórias que casam com o filtro."""
+    memory = _memory_mock()
+    memory.count.return_value = 42
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories?topic=fastapi")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers.get("x-total-count") == "42"
+        assert memory.count.await_args.kwargs["topic"] == "fastapi"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_list_memories_omits_total_when_storage_unavailable() -> None:
+    """Qdrant fora (count=None) ⇒ sem X-Total-Count (não mente um total)."""
+    memory = _memory_mock()
+    memory.count.return_value = None
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers.get("x-total-count") is None
     finally:
         app.dependency_overrides.clear()

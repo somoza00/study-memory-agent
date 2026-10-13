@@ -105,9 +105,14 @@ async def list_memories(
     items, next_cursor = await memory.list(
         topic=topic, limit=limit, session_id=session_id, cursor=cursor
     )
-    headers = {"X-Next-Cursor": next_cursor} if next_cursor else None
+    total = await memory.count(topic=topic, session_id=session_id)
+    headers: dict[str, str] = {}
+    if next_cursor:
+        headers["X-Next-Cursor"] = next_cursor
+    if total is not None:
+        headers["X-Total-Count"] = str(total)
     return JSONResponse(
-        content=[item.model_dump(mode="json") for item in items], headers=headers
+        content=[item.model_dump(mode="json") for item in items], headers=headers or None
     )
 
 
