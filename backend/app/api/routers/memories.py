@@ -83,6 +83,9 @@ async def list_memories(
     session_id: str | None = Query(
         default=None, max_length=200, description="Filtra memórias por sessão de conversa."
     ),
+    source: str | None = Query(
+        default=None, max_length=200, description="Filtra memórias por fonte (source)."
+    ),
     limit: int = Query(default=20, ge=1, le=100, description="Quantidade máxima de itens."),
     cursor: str | None = Query(
         default=None,
@@ -91,7 +94,7 @@ async def list_memories(
     ),
     memory: MemoryService = Depends(get_memory_service),
 ) -> Response:
-    """Lista memórias persistidas, filtradas por `topic` e/ou `session_id`.
+    """Lista memórias persistidas, filtradas por `topic`, `session_id` e/ou `source`.
 
     Paginação por CURSOR opaco (não offset inteiro): o `scroll` do Qdrant pagina
     por cursor, não por "pular N". Quando há mais páginas, o próximo cursor vem no
@@ -103,9 +106,9 @@ async def list_memories(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="cursor inválido") from exc
     items, next_cursor = await memory.list(
-        topic=topic, limit=limit, session_id=session_id, cursor=cursor
+        topic=topic, limit=limit, session_id=session_id, cursor=cursor, source=source
     )
-    total = await memory.count(topic=topic, session_id=session_id)
+    total = await memory.count(topic=topic, session_id=session_id, source=source)
     headers: dict[str, str] = {}
     if next_cursor:
         headers["X-Next-Cursor"] = next_cursor
