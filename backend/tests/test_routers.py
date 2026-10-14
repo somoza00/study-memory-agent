@@ -138,6 +138,20 @@ def test_list_memories_filters_by_session() -> None:
         app.dependency_overrides.clear()
 
 
+def test_list_memories_filters_by_source() -> None:
+    """`?source=` filtra a listagem (e o total) por fonte — antes não existia."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories?source=livro")
+        assert resp.status_code == 200, resp.text
+        assert memory.list.await_args.kwargs["source"] == "livro"
+        assert memory.count.await_args.kwargs["source"] == "livro"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_topics_returns_distinct_list() -> None:
     memory = _memory_mock()
     app.dependency_overrides[get_memory_service] = lambda: memory

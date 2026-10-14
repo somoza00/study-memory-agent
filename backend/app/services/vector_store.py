@@ -201,8 +201,10 @@ class VectorStore:
             raise
         return sorted(topics)[:limit]
 
-    async def count(self, topic: str | None = None, session_id: str | None = None) -> int:
-        """Conta as memórias (filtradas por `topic`/`session_id`), exato.
+    async def count(
+        self, topic: str | None = None, session_id: str | None = None, *, source: str | None = None
+    ) -> int:
+        """Conta as memórias (filtradas por `topic`/`session_id`/`source`), exato.
 
         Complementa a listagem paginada por cursor: o cliente sabe o TOTAL de
         memórias que casam com o filtro, não só quantas vieram na página.
@@ -214,6 +216,8 @@ class VectorStore:
             conditions.append(
                 FieldCondition(key="session_id", match=MatchValue(value=session_id))
             )
+        if source is not None:
+            conditions.append(FieldCondition(key="source", match=MatchValue(value=source)))
         count_filter: Filter | None = (
             Filter(must=conditions) if conditions else None  # type: ignore[arg-type]
         )
@@ -275,9 +279,11 @@ class VectorStore:
         topic: str | None = None,
         session_id: str | None = None,
         cursor: str | None = None,
+        *,
+        source: str | None = None,
     ) -> tuple[list[Record], str | None]:
-        """Lista memórias (filtradas por `topic`/`session_id`), até `limit`, a partir do
-        `cursor` opaco da página anterior.
+        """Lista memórias (filtradas por `topic`/`session_id`/`source`), até `limit`, a partir
+        do `cursor` opaco da página anterior.
 
         Devolve `(registros, próximo_cursor)`. O cursor é o `next_page_offset` do
         Qdrant (um PointId), NÃO um número "pular N": o `scroll` pagina por cursor,
@@ -290,6 +296,8 @@ class VectorStore:
             conditions.append(
                 FieldCondition(key="session_id", match=MatchValue(value=session_id))
             )
+        if source is not None:
+            conditions.append(FieldCondition(key="source", match=MatchValue(value=source)))
         # `Filter.must` é tipado como lista invariante no qdrant-client; o literal
         # inline funciona, mas construção incremental exige ignore (quirk do cliente).
         scroll_filter: Filter | None = (

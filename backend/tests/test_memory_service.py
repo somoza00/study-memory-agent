@@ -194,7 +194,17 @@ async def test_list_delegates_and_converts_records() -> None:
     assert results[0].metadata.topic == "fastapi"
     assert results[0].text == "sobre DI"
     assert cursor == "cur-1"  # próximo cursor propagado
-    store.list.assert_awaited_once_with(5, "fastapi", None, None)
+    store.list.assert_awaited_once_with(5, "fastapi", None, None, source=None)
+
+
+async def test_list_forwards_source_filter() -> None:
+    """`source` é repassado ao store como filtro de payload."""
+    service, _embeddings, store = make_service()
+    store.list.return_value = ([], None)
+
+    await service.list(source="livro")
+
+    assert store.list.await_args.kwargs["source"] == "livro"
 
 
 async def test_list_forwards_cursor_to_the_store() -> None:
@@ -579,7 +589,15 @@ async def test_count_delegates_to_store() -> None:
     store.count.return_value = 7
 
     assert await service.count(topic="fastapi", session_id="s1") == 7
-    store.count.assert_awaited_once_with("fastapi", "s1")
+    store.count.assert_awaited_once_with("fastapi", "s1", source=None)
+
+
+async def test_count_forwards_source_filter() -> None:
+    service, _embeddings, store = make_service()
+    store.count.return_value = 3
+
+    assert await service.count(source="livro") == 3
+    assert store.count.await_args.kwargs["source"] == "livro"
 
 
 async def test_count_returns_none_when_qdrant_offline() -> None:

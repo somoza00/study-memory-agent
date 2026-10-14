@@ -218,14 +218,17 @@ class MemoryService:
         limit: int = 20,
         session_id: str | None = None,
         cursor: str | None = None,
+        source: str | None = None,
     ) -> tuple[list[StoredMemory], str | None]:
-        """Lista memórias persistidas (filtros `topic`/`session_id`), paginadas por cursor.
+        """Lista memórias persistidas (filtros `topic`/`session_id`/`source`), paginadas por cursor.
 
         Devolve `(memórias, próximo_cursor)`; `([], None)` se o Qdrant estiver
         indisponível. O cursor é opaco (ver `VectorStore.list`).
         """
         try:
-            records, next_page = await self._store.list(limit, topic, session_id, cursor)
+            records, next_page = await self._store.list(
+                limit, topic, session_id, cursor, source=source
+            )
             out: list[StoredMemory] = []
             for record in records:
                 try:
@@ -237,14 +240,17 @@ class MemoryService:
             logger.warning("Qdrant indisponível ou payload inválido: list retornando vazio")
             return [], None
 
-    async def count(self, topic: str | None = None, session_id: str | None = None) -> int | None:
-        """Total de memórias (filtrado por `topic`/`session_id`); `None` se o Qdrant estiver fora.
+    async def count(
+        self, topic: str | None = None, session_id: str | None = None, source: str | None = None
+    ) -> int | None:
+        """Total de memórias (filtrado por `topic`/`session_id`/`source`); `None` se o Qdrant
+        estiver fora.
 
         Complementa a listagem paginada por cursor: o header X-Total-Count diz ao
         cliente quantas memórias existem ao todo, não só quantas vieram na página.
         """
         try:
-            return await self._store.count(topic, session_id)
+            return await self._store.count(topic, session_id, source=source)
         except Exception:
             logger.warning("Qdrant indisponível: count retornando None")
             return None
