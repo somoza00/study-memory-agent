@@ -605,3 +605,17 @@ async def test_count_returns_none_when_qdrant_offline() -> None:
     store.count.side_effect = ConnectionError("qdrant offline")
 
     assert await service.count() is None
+
+
+# --- Sessões distintas (GET /api/sessions) ---
+
+
+async def test_list_sessions_delegates_and_degrades_gracefully() -> None:
+    service, _embeddings, store = make_service()
+    store.list_sessions.return_value = ["s1", "s2"]
+
+    assert await service.list_sessions(7) == ["s1", "s2"]
+    store.list_sessions.assert_awaited_once_with(7)
+
+    store.list_sessions.side_effect = ConnectionError("qdrant offline")
+    assert await service.list_sessions() == []

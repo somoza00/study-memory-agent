@@ -3,6 +3,7 @@
 Expõe:
 - `GET    /api/memories?topic=&limit=&cursor=` → lista memórias (filtros + paginação por cursor)
 - `GET    /api/topics`                    → tópicos distintos existentes
+- `GET    /api/sessions`                  → sessões de conversa distintas existentes
 - `PATCH  /api/topics`                    → renomeia um tópico (renomear da sidebar)
 - `DELETE /api/topics?topic=`             → remove todas as memórias de um tópico
 - `DELETE /api/memories/{id}`            → remove uma memória pelo id
@@ -160,6 +161,19 @@ async def list_topics(
 ) -> list[str]:
     """Lista os tópicos distintos das memórias existentes (limitado a `limit`)."""
     return await memory.list_topics(limit=limit)
+
+
+@router.get("/sessions", response_model=list[str])
+async def list_sessions(
+    limit: int = Query(default=50, ge=1, le=200, description="Quantidade máxima de sessões."),
+    memory: MemoryService = Depends(get_memory_service),
+) -> list[str]:
+    """Lista as sessões de conversa que possuem memórias (limitado a `limit`).
+
+    Complementa `DELETE /api/sessions/{session_id}`: antes não havia como
+    descobrir quais sessões existem sem tentar apagar "no escuro".
+    """
+    return await memory.list_sessions(limit=limit)
 
 
 @router.get("/topics/counts", response_model=list[TopicCount])

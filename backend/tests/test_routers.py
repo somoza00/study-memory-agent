@@ -41,6 +41,7 @@ def _memory_mock() -> AsyncMock:
     memory = AsyncMock()
     memory.list.return_value = ([StoredMemory(id="abc", text="texto", metadata=metadata)], None)
     memory.list_topics.return_value = ["fastapi", "react"]
+    memory.list_sessions.return_value = ["s1", "s2"]
     memory.count.return_value = 1
     memory.delete.return_value = True
     memory.delete_session.return_value = True
@@ -148,6 +149,20 @@ def test_list_memories_filters_by_source() -> None:
         assert resp.status_code == 200, resp.text
         assert memory.list.await_args.kwargs["source"] == "livro"
         assert memory.count.await_args.kwargs["source"] == "livro"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_sessions_returns_distinct_list() -> None:
+    """`GET /api/sessions` lista as sessões de conversa com memórias."""
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/sessions?limit=5")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == ["s1", "s2"]
+        assert memory.list_sessions.await_args.kwargs["limit"] == 5
     finally:
         app.dependency_overrides.clear()
 
