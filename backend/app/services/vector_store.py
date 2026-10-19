@@ -231,6 +231,37 @@ class VectorStore:
             raise
         return int(result.count)
 
+    async def list_sessions(self, limit: int = 50) -> list[str]:
+        """Retorna até `limit` sessões distintas presentes na collection.
+
+        Espelha `list_topics` (scroll que para ao juntar `limit` sessões): a
+        collection pode ser grande, então não varremos tudo.
+        """
+        sessions: set[str] = set()
+        offset: types.PointId | None = None
+        try:
+            await self._ensure_collection()
+            while len(sessions) < limit:
+                records, next_page = await self._client.scroll(
+                    collection_name=self._collection,
+                    scroll_filter=None,
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for record in records:
+                    session = (record.payload or {}).get("session_id")
+                    if session:
+                        sessions.add(str(session))
+                if next_page is None or not records:
+                    break
+                offset = next_page
+        except Exception:
+            self._invalidate_collection()
+            raise
+        return sorted(sessions)[:limit]
+
     async def count_by_topic(self, topic: str) -> int:
         """Conta as memórias persistidas de um tópico (exato). Self-heal em falha."""
         try:

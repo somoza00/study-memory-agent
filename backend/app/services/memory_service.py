@@ -195,6 +195,18 @@ class MemoryService:
             logger.warning("Qdrant indisponível: list_topics retornando vazio")
             return []
 
+    async def list_sessions(self, limit: int = 50) -> list[str]:
+        """Lista sessões de conversa distintas (até `limit`); vazia se Qdrant fora.
+
+        Espelha `list_topics`: permite ao cliente descobrir quais sessões têm
+        memórias (e então apagá-las por `DELETE /api/sessions/{id}`).
+        """
+        try:
+            return await self._store.list_sessions(limit)
+        except Exception:
+            logger.warning("Qdrant indisponível: list_sessions retornando vazio")
+            return []
+
     async def topic_counts(self, limit: int = 50) -> list[TopicCount]:
         """Lista tópicos distintos com a contagem de memórias de cada um.
 
