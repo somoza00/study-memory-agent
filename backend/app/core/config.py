@@ -6,10 +6,11 @@ variáveis de ambiente obrigatórias (ex.: testes, CI).
 
 from __future__ import annotations
 
-from typing import Literal
+import json
+from typing import Annotated, Literal
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -29,7 +30,7 @@ class Settings(BaseSettings):
     openai_base_url: str | None = None
     # Headers extras do provedor do agente (JSON). Ex.: o OpenCode Go exige um
     # `x-opencode-session` estável para roteamento e cache de prompt.
-    openai_extra_headers: dict[str, str] = {}
+    openai_extra_headers: Annotated[dict[str, str], NoDecode] = {}
     # --- Embeddings ---
     # "openai" = endpoint OpenAI-compatível (`EMBEDDING_BASE_URL`/`EMBEDDING_API_KEY`);
     # "local"  = ONNX no próprio processo (fastembed), sem chave nem chamada de rede.
@@ -106,6 +107,35 @@ class Settings(BaseSettings):
         """`RECALL_MIN_SCORE=` vazio no `.env` significa "usa o default do provedor"."""
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("openai_extra_headers", mode="before")
+    @classmethod
+    def _blank_extra_headers_means_none(cls, value: object) -> object:
+        """`OPENAI_EXTRA_HEADERS=` vazio significa "sem header extra" (não erro).
+
+        O compose injeta a variável SEMPRE (`${OPENAI_EXTRA_HEADERS:-}`), então
+        com o provedor padrão ela chega como string vazia dentro do container.
+        Um dict vazio é o default, mas uma string vazia não é JSON válido: sem
+        tratar isto, o pydantic-settings levantava `SettingsError: error parsing
+        value for field "openai_extra_headers"` no import do Settings e o
+        backend subia em crash-loop no `docker compose up` recém-clonado.
+
+        O campo usa `NoDecode` porque, para tipos complexos, o pydantic-settings
+        decodifica o JSON na LEITURA da fonte — antes de qualquer field_validator
+        rodar. Com `NoDecode` o valor chega cru aqui e a decisão (vazio => {},
+        JSON válido => dict) fica explícita.
+        """
+        if isinstance(value, str):
+            if not value.strip():
+                return {}
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    "OPENAI_EXTRA_HEADERS precisa ser um objeto JSON, ex.: "
+                    '{"x-opencode-session": "abc"}'
+                ) from exc
         return value
 
     @property
