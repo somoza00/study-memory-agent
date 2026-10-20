@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
 from app.core.config import Settings
 from app.services.observability import configure_langfuse_otel
 
@@ -41,6 +44,34 @@ def test_blank_recall_threshold_falls_back_to_provider_default(monkeypatch) -> N
 
 def test_recall_limit_defaults_to_five() -> None:
     assert Settings().recall_limit == 5
+
+
+# --- Headers extras do provedor ---
+
+
+def test_blank_extra_headers_fall_back_to_empty_dict(monkeypatch) -> None:
+    """`OPENAI_EXTRA_HEADERS=` vazio (como o compose injeta) não pode quebrar o Settings.
+
+    O compose passa `${OPENAI_EXTRA_HEADERS:-}`, ou seja, string vazia quando o
+    usuário não define nada — antes isso levantava SettingsError no import e o
+    backend subia em crash-loop no `docker compose up` recém-clonado.
+    """
+    monkeypatch.setenv("OPENAI_EXTRA_HEADERS", "")
+    assert Settings(_env_file=None).openai_extra_headers == {}
+
+
+def test_extra_headers_json_still_parsed(monkeypatch) -> None:
+    """Valor JSON continua sendo lido normalmente (a correção só trata o vazio)."""
+    monkeypatch.setenv("OPENAI_EXTRA_HEADERS", '{"x-opencode-session": "abc"}')
+    assert Settings(_env_file=None).openai_extra_headers == {"x-opencode-session": "abc"}
+
+
+def test_extra_headers_invalid_json_fails_with_actionable_message(monkeypatch) -> None:
+    """JSON inválido continua sendo erro — mas apontando o formato esperado."""
+    monkeypatch.setenv("OPENAI_EXTRA_HEADERS", "x-opencode-session=abc")
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+    assert "OPENAI_EXTRA_HEADERS" in str(excinfo.value)
 
 
 def test_recall_scope_defaults_to_all_sessions() -> None:
