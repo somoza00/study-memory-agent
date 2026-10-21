@@ -19,7 +19,10 @@ lint:
 	cd backend && .venv/bin/ruff check app && .venv/bin/mypy app
 test:
 	cd backend && .venv/bin/ruff check app && .venv/bin/mypy app && .venv/bin/pytest
+# O CI usa `npm ci` (o package-lock.json está commitado): `npm install` podia
+# reescrever o lockfile localmente e mascarar um lock dessincronizado do
+# package.json — a divergência só aparecia no CI, depois do push.
 frontend-build:
-	cd frontend && npm install && npm run build
+	cd frontend && npm ci && npm run build
 frontend-test:
 	cd frontend && npm test
