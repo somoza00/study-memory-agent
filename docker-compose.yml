@@ -58,6 +58,17 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     networks: [sma]
+    healthcheck:
+      # O Qdrant não tinha healthcheck e o backend dependia de `service_started`:
+      # no primeiro `up` (volume vazio) o backend subia antes do Qdrant aceitar
+      # conexões, e a criação da collection falhava no boot.
+      # A imagem do Qdrant não traz curl/wget — só bash — então a sonda é HTTP
+      # via /dev/tcp: /healthz responde 200 quando o storage está pronto.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 && printf \"GET /healthz HTTP/1.0\\r\\n\\r\\n\" >&3 && head -1 <&3 | grep -q \"200\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   postgres:
     image: postgres:16-alpine
@@ -130,7 +141,7 @@ services:
     restart: unless-stopped
     depends_on:
       qdrant:
-        condition: service_started
+        condition: service_healthy
     environment:
       <<: *backend-env
     env_file:
