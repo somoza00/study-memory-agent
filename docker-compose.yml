@@ -53,8 +53,14 @@ services:
     container_name: sma-qdrant
     restart: unless-stopped
     ports:
-      - "${QDRANT_API_PORT:-6333}:6333"
-      - "${QDRANT_GRPC_PORT:-6334}:6334"
+      # Só loopback: este Qdrant NÃO tem API key (o backend fala com ele pela
+      # rede interna do compose, em qdrant:6333 — o publish não é necessário
+      # para isso). Publicado em 0.0.0.0 ele ficava alcançável por qualquer
+      # máquina da rede local, e a API REST dele não tem autenticação: qualquer
+      # um podia ler e APAGAR a coleção de memórias (DELETE /collections/...).
+      # 127.0.0.1 mantém o dashboard local (http://localhost:6333/dashboard).
+      - "127.0.0.1:${QDRANT_API_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     networks: [sma]
