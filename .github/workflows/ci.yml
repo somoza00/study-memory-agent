@@ -10,8 +10,15 @@ permissions:
 
 jobs:
   backend:
-    name: Backend (ruff · mypy · pytest)
+    name: Backend ${{ matrix.python-version }} (ruff · mypy · pytest)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.11 = mínimo declarado em `requires-python`; 3.14 = o que a imagem
+        # do compose roda (`backend/Dockerfile`). Antes só o 3.11 era testado:
+        # uma dep que quebrasse no 3.14 (ex.: wheel sem suporte ao ABI novo)
+        # passava pelo CI e só aparecia no `docker compose up`.
+        python-version: ["3.11", "3.14"]
     defaults:
       run:
         working-directory: backend
@@ -19,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: |
           python -m venv .venv
