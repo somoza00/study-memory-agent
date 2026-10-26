@@ -2,9 +2,14 @@ FROM node:26-alpine
 
 WORKDIR /app
 
-# Sem lockfile no scaffold ainda -> npm install (npm ci exigiria package-lock.json)
-COPY package*.json ./
-RUN npm install
+# `npm ci` (não `npm install`): o package-lock.json está commitado e é o que
+# o CI e o `make frontend-build` usam. Com `npm install`, a imagem podia
+# resolver versões diferentes das que o CI testou — ou reescrever o lock
+# dentro do build — então o container subia com uma árvore de deps que
+# nenhum gate viu. O comentário anterior ("sem lockfile no scaffold") ficou
+# obsoleto quando o lock foi commitado.
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 
