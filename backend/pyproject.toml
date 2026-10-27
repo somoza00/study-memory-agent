@@ -22,6 +22,18 @@ dependencies = [
   "openai>=1.55",
   "langfuse>=2.55",
   "python-dotenv>=1.0",
+  # Pisos de segurança (--skip-editable no pip-audit): todas estas são deps
+  # transitivas (certifi/urllib3 via requests+qdrant-client, PyJWT/mcp via
+  # pydantic-ai, setuptools via grpcio-tools) e o resolvedor trazia versões com
+  # CVE conhecida — o `pip-audit` acusava 33 advisories. Fixar o piso aqui faz
+  # uma instalação nova (CI, imagem Docker) já nascer corrigida, sem esperar
+  # que alguma dep de cima suba o próprio requisito. `mcp<2` porque o 2.x é
+  # major com quebra de API.
+  "certifi>=2026.10.19",
+  "pyjwt>=2.15",
+  "urllib3>=2.8",
+  "setuptools>=84.1",
+  "mcp>=1.30.0,<2",
 ]
 
 [project.optional-dependencies]
