@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.services.embedding_service import EmbeddingService
@@ -135,3 +136,26 @@ async def test_remote_dim_mismatch_raises_clear_error() -> None:
 
     with pytest.raises(ValueError, match="EMBEDDING_DIM=1536"):
         await service.embed("texto")
+
+
+def test_embedding_client_uses_configured_timeout() -> None:
+    """`EMBEDDING_TIMEOUT_SECONDS` chega no cliente (não fica só no Settings)."""
+    cfg = Settings(openai_api_key="x", embedding_timeout_seconds=7.5)
+    client = EmbeddingService(config=cfg)._get_client()
+    assert client.timeout == 7.5
+
+
+def test_embedding_client_default_timeout_is_bounded() -> None:
+    """Sem a env, o default do SDK (read=600s + 2 retries) não é herdado."""
+    cfg = Settings(openai_api_key="x")
+    client = EmbeddingService(config=cfg)._get_client()
+    assert client.timeout == 30.0
+    assert client.timeout < 600  # SDK default de leitura seria 600s
+
+
+def test_rejects_non_positive_embedding_timeout() -> None:
+    """Timeout 0/negativo falharia toda chamada de embedding na hora."""
+    with pytest.raises(ValidationError):
+        Settings(openai_api_key="x", embedding_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        Settings(openai_api_key="x", embedding_timeout_seconds=-1)

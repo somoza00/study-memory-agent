@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     embedding_base_url: str | None = None
     # Chave do endpoint de embeddings; vazia = usa a mesma do agente.
     embedding_api_key: str = ""
+    # Timeout (segundos) das chamadas ao endpoint de embeddings. O default do
+    # SDK da OpenAI é read=600s com 2 retries (até ~30min numa única chamada):
+    # um endpoint que aceita a conexão e depois trava prendia
+    # POST /api/memories e o recall do chat por meia hora, com /health ainda
+    # respondendo "ok". 30s é folgado para gerar um embedding (é uma chamada
+    # by-token curta) e devolve o erro rápido o bastante para o 502 estruturado.
+    embedding_timeout_seconds: float = 30.0
     # Chave de autenticação da própria API (header X-API-Key) para as rotas /api.
     # None = auth desabilitada (dev). Em produção, defina para fechar a API.
     api_key: str | None = None
@@ -100,6 +107,14 @@ class Settings(BaseSettings):
     def embedding_endpoint(self) -> str | None:
         """Base URL efetiva dos embeddings (`EMBEDDING_BASE_URL` ou herda a do agente)."""
         return self.embedding_base_url or self.openai_base_url
+
+    @field_validator("embedding_timeout_seconds")
+    @classmethod
+    def _positive_embedding_timeout(cls, value: float) -> float:
+        """`EMBEDDING_TIMEOUT_SECONDS=0`/negativo falharia toda chamada na hora."""
+        if value <= 0:
+            raise ValueError("EMBEDDING_TIMEOUT_SECONDS precisa ser maior que zero")
+        return value
 
     @field_validator("recall_min_score", mode="before")
     @classmethod
