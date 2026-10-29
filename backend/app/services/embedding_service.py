@@ -61,6 +61,11 @@ class EmbeddingService:
                 # Endpoint próprio dos embeddings (`EMBEDDING_BASE_URL`, com
                 # fallback para o do agente); None preserva o padrão da OpenAI.
                 base_url=self._config.embedding_endpoint,
+                # Sem timeout explícito o SDK usa read=600s com 2 retries: um
+                # endpoint que aceita a conexão e trava prendia o request por
+                # até ~30min (e /health continuava "ok", porque o processo
+                # está vivo — só a chamada não volta).
+                timeout=self._config.embedding_timeout_seconds,
             )
         return self._client
 
