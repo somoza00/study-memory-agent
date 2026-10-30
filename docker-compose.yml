@@ -140,7 +140,13 @@ services:
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-admin}
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-change-me}
     ports:
-      - "${LANGFUSE_PORT:-3000}:3000"
+      # 127.0.0.1: o Langfuse sobe com credenciais de exemplo (NEXTAUTH_SECRET e
+      # SALT = "change-me", ENCRYPTION_KEY zerada, usuário admin com senha
+      # "change-me"). Publicado em 0.0.0.0 ele ficava acessível a qualquer
+      # máquina da LAN — mesma exposição que motivou o qdrant acima ficar só no
+      # loopback, só que aqui a sessão do admin estaria a uma senha default de
+      # distância. O dashboard em http://localhost:3000 continua igual.
+      - "127.0.0.1:${LANGFUSE_PORT:-3000}:3000"
     networks: [sma]
 
   backend:
