@@ -212,3 +212,33 @@ async def test_chat_honours_session_scoped_recall() -> None:
         await service.chat("oi", session_id="s1")
 
     memory.recall.assert_awaited_once_with("oi", 5, 0.7, None, session_id="s1")
+
+
+async def test_chat_passes_model_override_to_agent_run() -> None:
+    """`model` informado vira `agent.run(..., model=...)` — override por execução."""
+    memory, _results = _memory_mock()
+    fake_agent = AsyncMock()
+    run_result = AsyncMock()
+    run_result.output = "ok"
+    fake_agent.run.return_value = run_result
+
+    with patch.object(AgentService, "_build_agent", return_value=fake_agent):
+        service = AgentService(memory_service=memory)  # type: ignore[arg-type]
+        await service.chat("oi", session_id="s1", model="gpt-4o-mini")
+
+    assert fake_agent.run.await_args.kwargs["model"] == "gpt-4o-mini"
+
+
+async def test_chat_without_model_keeps_configured_model() -> None:
+    """Sem `model`, o kwargs vai como None (o agente usa o AGENT_MODEL)."""
+    memory, _results = _memory_mock()
+    fake_agent = AsyncMock()
+    run_result = AsyncMock()
+    run_result.output = "ok"
+    fake_agent.run.return_value = run_result
+
+    with patch.object(AgentService, "_build_agent", return_value=fake_agent):
+        service = AgentService(memory_service=memory)  # type: ignore[arg-type]
+        await service.chat("oi", session_id="s1")
+
+    assert fake_agent.run.await_args.kwargs["model"] is None
