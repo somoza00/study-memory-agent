@@ -22,6 +22,14 @@ class ChatRequest(BaseModel):
         max_length=120,
         description="Filtra a recuperação de memória para um tópico específico (opcional).",
     )
+    model: str | None = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Modelo a usar só nesta requisição (ex.: 'gpt-4o-mini', 'llama3.2'), "
+            "sobrescrevendo AGENT_MODEL. Vazio = usa o modelo configurado."
+        ),
+    )
 
     @field_validator("message")
     @classmethod
@@ -30,6 +38,20 @@ class ChatRequest(BaseModel):
         if not value.strip():
             raise ValueError("message não pode conter apenas espaços")
         return value
+
+    @field_validator("model")
+    @classmethod
+    def _blank_model_means_configured(cls, value: str | None) -> str | None:
+        """`model` vazio/só-espaços = usa o `AGENT_MODEL`, não um nome em branco.
+
+        O nome do modelo é enviado ao provedor: uma string vazia (ou com
+        espaços) viraria um 400 do upstream em vez do modelo configurado —
+        trata como "não informado".
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class ChatResponse(BaseModel):

@@ -29,7 +29,9 @@ async def chat(
 ) -> ChatResponse:
     """Processa uma mensagem com recuperação de memórias (filtro `topic` opcional)."""
     try:
-        result = await agent.chat(request.message, request.session_id, request.topic)
+        result = await agent.chat(
+            request.message, request.session_id, request.topic, model=request.model
+        )
     except ProviderNotConfiguredError as exc:
         # Provedor não configurado é problema de deploy, não falha de provider:
         # 503 com o motivo, nunca o 500 cru que saía da construção do agente.
@@ -80,7 +82,7 @@ async def chat_stream(
     async def event_source() -> AsyncIterator[str]:
         try:
             async for event in agent.stream_chat(
-                request.message, request.session_id, request.topic
+                request.message, request.session_id, request.topic, model=request.model
             ):
                 data: dict[str, object] = {"type": event.type}
                 if event.type == "done":

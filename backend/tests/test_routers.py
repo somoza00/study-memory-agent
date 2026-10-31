@@ -21,8 +21,15 @@ from app.services.memory_service import RenameTopicResult, RenameTopicStatus
 class _FakeStreamAgent:
     """Substituto do AgentService que emite eventos SSE sem tocar o LLM."""
 
-    async def stream_chat(self, message: str, session_id: str, topic: str | None = None):
-        del message, session_id, topic
+    async def stream_chat(
+        self,
+        message: str,
+        session_id: str,
+        topic: str | None = None,
+        *,
+        model: str | None = None,
+    ):
+        del message, session_id, topic, model
         yield StreamEvent(type="token", content="Olá")
         yield StreamEvent(type="token", content=" mundo")
         yield StreamEvent(type="done", memories_used=2)
@@ -65,7 +72,7 @@ def test_chat_returns_response_and_memories_used() -> None:
         assert body["response"] == "Resposta simulada do agente."
         assert body["memories_used"] == 2
         assert body["session_id"] == "s1"
-        agent.chat.assert_awaited_once_with("oi", "s1", None)
+        agent.chat.assert_awaited_once_with("oi", "s1", None, model=None)
     finally:
         app.dependency_overrides.clear()
 
@@ -490,7 +497,14 @@ def test_chat_stream_emits_error_event_on_non_openai_failure() -> None:
     """Exceção não-OpenAI no stream vira evento de erro SSE (nunca stream truncado)."""
 
     class _BrokenStream:
-        async def stream_chat(self, message: str, session_id: str, topic: str | None = None):
+        async def stream_chat(
+            self,
+            message: str,
+            session_id: str,
+            topic: str | None = None,
+            *,
+            model: str | None = None,
+        ):
             del message, session_id, topic
             yield StreamEvent(type="token", content="oi")
             raise RuntimeError("boom")
@@ -916,5 +930,51 @@ def test_list_memories_omits_total_when_storage_unavailable() -> None:
         resp = client.get("/api/memories")
         assert resp.status_code == 200, resp.text
         assert resp.headers.get("x-total-count") is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_forwards_model_override() -> None:
+    """`model` no corpo é repassado ao agente (override só desta execução)."""
+    agent = _agent_mock()
+    app.dependency_overrides[get_agent_service] = lambda: agent
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/chat",
+            json={"message": "oi", "session_id": "s1", "model": "gpt-4o"},
+        )
+        assert resp.status_code == 200, resp.text
+        agent.chat.assert_awaited_once_with("oi", "s1", None, model="gpt-4o")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_blank_model_falls_back_to_configured() -> None:
+    """`model` só com espaços = modelo configurado (não um nome em branco no upstream)."""
+    agent = _agent_mock()
+    app.dependency_overrides[get_agent_service] = lambda: agent
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/chat",
+            json={"message": "oi", "session_id": "s1", "model": "   "},
+        )
+        assert resp.status_code == 200, resp.text
+        agent.chat.assert_awaited_once_with("oi", "s1", None, model=None)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_rejects_oversized_model_name() -> None:
+    """Nome de modelo acima do limite da coluna/upstream é rejeitado (422)."""
+    app.dependency_overrides[get_agent_service] = lambda: AsyncMock()
+    try:
+        client = TestClient(app)
+        resp = client.post(
+            "/api/chat",
+            json={"message": "oi", "session_id": "s1", "model": "m" * 201},
+        )
+        assert resp.status_code == 422
     finally:
         app.dependency_overrides.clear()

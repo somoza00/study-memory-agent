@@ -205,35 +205,18 @@ class AgentService:
         """
         return session_id if self._config.recall_scope == "session" else None
 
-    async def chat(self, message: str, session_id: str, topic: str | None = None) -> ChatResult:
-        """Recupera memórias (opcionalmente de um `topic`) e gera a resposta."""
-        agent = self._require_agent()
-        session_filter = self._recall_session_filter(session_id)
-        memories = await self._memory.recall(
-            message,
-            self._config.recall_limit,
-            self._config.recall_score_threshold,
-            topic,
-            session_id=session_filter,
-        )
-        deps = AgentDeps(
-            memory=self._memory,
-            session_id=session_id,
-            context=memories,
-            threshold=self._config.recall_score_threshold,
-            session_filter=session_filter,
-        )
-        result = await agent.run(message, deps=deps)
-        return ChatResult(response=str(result.output), memories_used=len(memories))
+    async def chat(
+        self,
+        message: str,
+        session_id: str,
+        topic: str | None = None,
+        *,
+        model: str | None = None,
+    ) -> ChatResult:
+        """Recupera memórias (opcionalmente de um `topic`) e gera a resposta.
 
-    async def stream_chat(
-        self, message: str, session_id: str, topic: str | None = None
-    ) -> AsyncIterator[StreamEvent]:
-        """Gera tokens de resposta em streaming (SSE) via `agent.run_stream`.
-
-        Recupera memórias relevantes antes de iniciar o stream (mesmo
-        comportamento de `chat`) e emite `StreamEvent` de tipo `token` a cada
-        delta de texto, terminando com `done` + `memories_used`.
+        `model` sobrepõe o `AGENT_MODEL` **só nesta execução** (o Pydantic AI
+        aceita override por run); `None` mantém o modelo configurado.
         """
         agent = self._require_agent()
         session_filter = self._recall_session_filter(session_id)
@@ -251,7 +234,41 @@ class AgentService:
             threshold=self._config.recall_score_threshold,
             session_filter=session_filter,
         )
-        async with agent.run_stream(message, deps=deps) as agent_run:
+        result = await agent.run(message, deps=deps, model=model)
+        return ChatResult(response=str(result.output), memories_used=len(memories))
+
+    async def stream_chat(
+        self,
+        message: str,
+        session_id: str,
+        topic: str | None = None,
+        *,
+        model: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        """Gera tokens de resposta em streaming (SSE) via `agent.run_stream`.
+
+        Recupera memórias relevantes antes de iniciar o stream (mesmo
+        comportamento de `chat`) e emite `StreamEvent` de tipo `token` a cada
+        delta de texto, terminando com `done` + `memories_used`. `model`
+        funciona como no `chat`: override de uma execução só.
+        """
+        agent = self._require_agent()
+        session_filter = self._recall_session_filter(session_id)
+        memories = await self._memory.recall(
+            message,
+            self._config.recall_limit,
+            self._config.recall_score_threshold,
+            topic,
+            session_id=session_filter,
+        )
+        deps = AgentDeps(
+            memory=self._memory,
+            session_id=session_id,
+            context=memories,
+            threshold=self._config.recall_score_threshold,
+            session_filter=session_filter,
+        )
+        async with agent.run_stream(message, deps=deps, model=model) as agent_run:
             async for delta in agent_run.stream_text(delta=True):
                 yield StreamEvent(type="token", content=delta)
         yield StreamEvent(type="done", memories_used=len(memories))

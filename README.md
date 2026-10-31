@@ -113,6 +113,14 @@ EMBEDDING_DIM=384
 | PATCH  | `/api/topics` | Renomeia um tópico (e todas as memórias dele): `{topic, name}` |
 | DELETE | `/api/memories/{id}` | Remove uma memória |
 
+### Modelo por requisição (chat)
+Tanto `/api/chat` quanto `/api/chat/stream` aceitam `model` opcional no corpo —
+`{"message": "...", "session_id": "s1", "model": "llama3.2"}`. O valor vale só
+para aquela execução (o Pydantic AI aceita override por `run`), sem mexer no
+`AGENT_MODEL` configurado; sem o campo (ou vazio) o agente usa o modelo do
+`.env`. Serve para comparar modelos no mesmo histórico de memórias (o provedor
+expõe a lista em `/v1/models` do gateway, quando ele está no caminho).
+
 ## Streaming (SSE)
 `POST /api/chat/stream` com body `{"message": "...", "session_id": "..."}`
 retorna `text/event-stream`:
