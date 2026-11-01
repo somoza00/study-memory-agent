@@ -57,3 +57,19 @@ jobs:
         run: npm run build
       - name: Tests
         run: npm test
+
+  docker-build:
+    # Os jobs acima testam o código no runner (pip/npm), nunca a IMAGEM: um
+    # Dockerfile quebrado (COPY de arquivo renomeado, dependência faltando no
+    # pyproject, `[local-embeddings]` sem as libs de sistema do onnxruntime)
+    # passava por ruff/mypy/pytest e só aparecia em `docker compose up`, com o
+    # serviço fora do ar. O myown-llm-gateway e o evaluation-framework já
+    # constroem a imagem a cada push/PR; aqui faltava o job equivalente.
+    name: Imagens Docker (build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build imagem do backend
+        run: docker build -t sma-backend:ci ./backend
+      - name: Build imagem do frontend
+        run: docker build -t sma-frontend:ci ./frontend
