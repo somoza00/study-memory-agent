@@ -145,7 +145,7 @@ cd backend && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]" && \
 cd frontend && npm ci && npm run build && npm test
 ```
 
-> **Atalhos (Makefile):** `make config` (valida o compose), `make venv` (cria o `.venv` do backend), `make lint` (ruff+mypy), `make test` (ruff+mypy+pytest) e `make frontend-build` (npm ci + build).
+> **Atalhos (Makefile):** `make config` (valida o compose), `make venv` (cria o `.venv` do backend), `make lint` (ruff+mypy), `make test` (ruff+mypy+pytest), `make frontend-build` (npm ci + build), `make frontend-test` (testes do frontend), `make docker-build` (constrói as duas imagens, como o job `docker-build` do CI) e `make ci` (roda o CI inteiro localmente, na mesma ordem do workflow).
 
 ## Status
 Fases **1–4 concluídas**:
