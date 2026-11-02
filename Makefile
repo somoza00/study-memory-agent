@@ -1,4 +1,4 @@
-.PHONY: up down logs build config venv lint test frontend-build frontend-test docker-build ci
+.PHONY: up down logs build config venv lint test frontend-build frontend-test docker-build audit ci
 
 up:
 	docker compose up -d --build
@@ -27,6 +27,14 @@ frontend-build:
 frontend-test:
 	cd frontend && npm test
 
+# Espelha o job `dependency-audit` do CI: pip-audit quebra o build quando há
+# CVE conhecida nas deps resolvidas. O pip-audit não é dev-dependency (o CI
+# instala na hora), então o alvo faz o mesmo. `--skip-editable`: o próprio
+# pacote local não existe no PyPI para ser auditado.
+audit:
+	cd backend && .venv/bin/pip install --upgrade pip \
+		&& .venv/bin/pip install "pip-audit>=2.7.0" && .venv/bin/pip-audit --skip-editable
+
 # Espelha o job `docker-build` do CI: as DUAS imagens, com as mesmas tags de
 # lá. Antes, um Dockerfile quebrado (COPY de arquivo renomeado, dependência
 # faltando no pyproject, `[local-embeddings]` sem as libs de sistema do
@@ -38,7 +46,7 @@ docker-build:
 	docker build -t sma-frontend:ci ./frontend
 
 # Roda o CI inteiro, na mesma ordem do .github/workflows/ci.yml: backend
-# (ruff + mypy + pytest), frontend (npm ci + build + test) e as imagens
-# Docker. Não inclui `config` porque o CI também não valida o compose — o
-# alvo existe para o vermelho aparecer ANTES do push, não depois.
-ci: test frontend-build frontend-test docker-build
+# (ruff + mypy + pytest), auditoria de CVE das deps, frontend (npm ci + build +
+# test) e as imagens Docker. Não inclui `config` porque o CI também não valida o
+# compose — o alvo existe para o vermelho aparecer ANTES do push, não depois.
+ci: test audit frontend-build frontend-test docker-build
