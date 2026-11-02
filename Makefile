@@ -1,4 +1,4 @@
-.PHONY: up down logs build config venv lint test frontend-build frontend-test
+.PHONY: up down logs build config venv lint test frontend-build frontend-test docker-build ci
 
 up:
 	docker compose up -d --build
@@ -26,3 +26,19 @@ frontend-build:
 	cd frontend && npm ci && npm run build
 frontend-test:
 	cd frontend && npm test
+
+# Espelha o job `docker-build` do CI: as DUAS imagens, com as mesmas tags de
+# lá. Antes, um Dockerfile quebrado (COPY de arquivo renomeado, dependência
+# faltando no pyproject, `[local-embeddings]` sem as libs de sistema do
+# onnxruntime) passava por ruff/mypy/pytest e só aparecia em `docker compose
+# up` — `make build` builda via compose, não valida o build isolado de cada
+# imagem como o CI faz.
+docker-build:
+	docker build -t sma-backend:ci ./backend
+	docker build -t sma-frontend:ci ./frontend
+
+# Roda o CI inteiro, na mesma ordem do .github/workflows/ci.yml: backend
+# (ruff + mypy + pytest), frontend (npm ci + build + test) e as imagens
+# Docker. Não inclui `config` porque o CI também não valida o compose — o
+# alvo existe para o vermelho aparecer ANTES do push, não depois.
+ci: test frontend-build frontend-test docker-build
