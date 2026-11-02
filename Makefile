@@ -32,7 +32,8 @@ frontend-test:
 # instala na hora), então o alvo faz o mesmo. `--skip-editable`: o próprio
 # pacote local não existe no PyPI para ser auditado.
 audit:
-	cd backend && .venv/bin/pip install "pip-audit>=2.7.0" && .venv/bin/pip-audit --skip-editable
+	cd backend && .venv/bin/pip install --upgrade pip \
+		&& .venv/bin/pip install "pip-audit>=2.7.0" && .venv/bin/pip-audit --skip-editable
 
 # Espelha o job `docker-build` do CI: as DUAS imagens, com as mesmas tags de
 # lá. Antes, um Dockerfile quebrado (COPY de arquivo renomeado, dependência

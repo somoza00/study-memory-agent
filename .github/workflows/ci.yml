@@ -79,6 +79,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m venv .venv
+          # O venv nasce com o pip que o runner traz (24.0 no ubuntu-latest), e
+          # o pip-audit audita o PRÓPRIO pip: sem atualizar, o job falhava
+          # apontando CVEs do pip do venv, não do projeto.
+          .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e ".[dev]"
       - name: pip-audit
         # --skip-editable: o próprio pacote local (instalado com pip install -e)
