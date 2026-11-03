@@ -619,3 +619,41 @@ async def test_list_sessions_delegates_and_degrades_gracefully() -> None:
 
     store.list_sessions.side_effect = ConnectionError("qdrant offline")
     assert await service.list_sessions() == []
+
+
+# --- Contagens por tópico (GET /api/topics/counts) ---
+
+
+async def test_topic_counts_uses_single_facet_call() -> None:
+    """Uma chamada `facet` substitui o scroll + um `count` por tópico."""
+    service, _embeddings, store = make_service()
+    store.topic_counts.return_value = [("fastapi", 7), ("python", 3)]
+
+    counts = await service.topic_counts(50)
+
+    assert [(c.topic, c.count) for c in counts] == [("fastapi", 7), ("python", 3)]
+    store.topic_counts.assert_awaited_once_with(50)
+    # O caminho N+1 antigo não pode ser acionado quando o facet funciona.
+    store.list_topics.assert_not_awaited()
+    store.count_by_topic.assert_not_awaited()
+
+
+async def test_topic_counts_falls_back_to_per_topic_count_when_facet_fails() -> None:
+    """Servidor sem `facet` (anterior ao 1.12): cai no caminho antigo, sem erro."""
+    service, _embeddings, store = make_service()
+    store.topic_counts.side_effect = AttributeError("facet")
+    store.list_topics.return_value = ["fastapi", "python"]
+    store.count_by_topic.side_effect = [7, 3]
+
+    counts = await service.topic_counts()
+
+    assert [(c.topic, c.count) for c in counts] == [("fastapi", 7), ("python", 3)]
+    assert store.count_by_topic.await_count == 2
+
+
+async def test_topic_counts_returns_empty_when_qdrant_offline() -> None:
+    service, _embeddings, store = make_service()
+    store.topic_counts.side_effect = ConnectionError("qdrant offline")
+    store.list_topics.side_effect = ConnectionError("qdrant offline")
+
+    assert await service.topic_counts() == []
