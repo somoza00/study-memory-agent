@@ -168,7 +168,11 @@ services:
       - fastembed_cache:/app/.cache/fastembed
     networks: [sma]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # Readiness (/health/ready): 503 quando o Qdrant não responde. Antes
+      # apontava para /health, que é liveness puro (200 fixo) — o container
+      # aparecia "healthy" com o banco vetorial fora, e o
+      # `depends_on: service_healthy` do frontend não garantia nada.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
       interval: 15s
       timeout: 5s
       retries: 5

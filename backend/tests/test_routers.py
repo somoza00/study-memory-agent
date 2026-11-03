@@ -546,6 +546,51 @@ def test_deep_health_reports_qdrant_status() -> None:
         app.dependency_overrides.clear()
 
 
+def test_readiness_200_when_qdrant_answers() -> None:
+    """`/health/ready` é o alvo do healthcheck do Compose: 200 com Qdrant de pé."""
+    store = AsyncMock()
+    store.ping.return_value = True
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        resp = client.get("/health/ready")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["dependencies"]["qdrant"] == "up"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_readiness_503_when_qdrant_is_down() -> None:
+    """Qdrant fora ⇒ 503, para o container parar de se dizer "healthy".
+
+    Antes o healthcheck mirava `/health`, que responde 200 fixo: o Compose
+    mostrava "healthy" com o banco vetorial caído.
+    """
+    store = AsyncMock()
+    store.ping.return_value = False
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        resp = client.get("/health/ready")
+        assert resp.status_code == 503, resp.text
+        assert resp.json()["status"] == "degraded"
+        assert resp.json()["dependencies"]["qdrant"] == "down"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_liveness_stays_ok_when_qdrant_is_down() -> None:
+    """Liveness continua 200: dependência fora não derruba processo saudável."""
+    store = AsyncMock()
+    store.ping.return_value = False
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        assert client.get("/health").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
 # --- Provedor do LLM ausente: 503 estruturado, nunca 500 cru ---
 
 

@@ -106,6 +106,7 @@ EMBEDDING_DIM=384
 | Método | Rota | Descrição |
 | ------ | ---- | --------- |
 | GET    | `/health` | Prontidão do backend |
+| GET    | `/health/ready` | Readiness real: 503 quando o Qdrant não responde (é o que o healthcheck do Compose usa) |
 | POST   | `/api/chat` | Resposta completa do agente: `{response, memories_used, session_id}` |
 | POST   | `/api/chat/stream` | Resposta em Server-Sent Events (tokens + `done`) |
 | GET    | `/api/memories?topic=&limit=` | Lista memórias (filtro opcional por tópico) |
