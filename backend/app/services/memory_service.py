@@ -210,16 +210,24 @@ class MemoryService:
     async def topic_counts(self, limit: int = 50) -> list[TopicCount]:
         """Lista tópicos distintos com a contagem de memórias de cada um.
 
-        Lista vazia se o Qdrant estiver indisponível (graceful degradation).
+        Uma chamada `facet` ao Qdrant devolve valor+contagem exata do campo
+        `topic`; antes eram 1 scroll + N `count` sequenciais (até 201 round
+        trips por requisição numa collection com 200 tópicos — a sidebar pedia
+        isso a cada abertura). Se o `facet` não estiver disponível (servidor
+        anterior ao 1.12) ou o Qdrant cair, degrada para o caminho antigo e,
+        na falha dele, para lista vazia (graceful degradation).
         """
         try:
+            counts = await self._store.topic_counts(limit)
+            return [TopicCount(topic=topic, count=count) for topic, count in counts]
+        except Exception:
+            logger.warning("facet de tópicos indisponível: contando tópico a tópico")
+        try:
             topics = await self._store.list_topics(limit)
-            counts: list[TopicCount] = []
-            for topic in topics:
-                counts.append(
-                    TopicCount(topic=topic, count=await self._store.count_by_topic(topic))
-                )
-            return counts
+            return [
+                TopicCount(topic=topic, count=await self._store.count_by_topic(topic))
+                for topic in topics
+            ]
         except Exception:
             logger.warning("Qdrant indisponível: topic_counts retornando vazio")
             return []

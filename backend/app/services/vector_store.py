@@ -17,6 +17,7 @@ from qdrant_client.models import (
     Filter,
     FilterSelector,
     MatchValue,
+    PayloadSchemaType,
     PointIdsList,
     PointStruct,
     Record,
@@ -25,6 +26,12 @@ from qdrant_client.models import (
 )
 
 from app.core.config import Settings, settings
+
+# Campos de payload usados em filtros (`topic`, `session_id`, `source`) e no
+# `facet` das contagens por tópico. Sem índice, o Qdrant varre a collection
+# inteira para cada filtro E recusa o `facet` ("No appropriate index for
+# faceting"), então estes índices são pré-requisito das duas coisas.
+_PAYLOAD_INDEX_FIELDS = ("topic", "session_id", "source")
 
 
 class VectorStore:
@@ -44,13 +51,25 @@ class VectorStore:
         self._collection_ready = False
 
     async def _ensure_collection(self) -> None:
-        """Cria a collection se ela ainda não existir."""
+        """Cria a collection (e os índices de payload) se ainda não existirem.
+
+        Os índices são idempotentes: criar um que já existe é no-op no Qdrant.
+        Ficam aqui (e não num passo de migração à parte) porque a collection é
+        criada sob demanda por este mesmo wrapper — uma collection antiga, sem
+        índices, é reparada na primeira operação após o deploy.
+        """
         if self._collection_ready:
             return
         if not await self._client.collection_exists(self._collection):
             await self._client.create_collection(
                 collection_name=self._collection,
                 vectors_config=VectorParams(size=self._vector_size, distance=Distance.COSINE),
+            )
+        for field in _PAYLOAD_INDEX_FIELDS:
+            await self._client.create_payload_index(
+                collection_name=self._collection,
+                field_name=field,
+                field_schema=PayloadSchemaType.KEYWORD,
             )
         self._collection_ready = True
 
@@ -261,6 +280,29 @@ class VectorStore:
             self._invalidate_collection()
             raise
         return sorted(sessions)[:limit]
+
+    async def topic_counts(self, limit: int = 50) -> list[tuple[str, int]]:
+        """Contagem exata de memórias por tópico, em UMA chamada (`facet`).
+
+        Antes a sidebar fazia 1 scroll + um `count` por tópico (até 201 round
+        trips por requisição). O `facet` do Qdrant devolve valor + contagem de
+        um campo do payload numa chamada só. Retorna os `limit` tópicos mais
+        usados, em ordem alfabética (a ordem que a sidebar exibe); pontos sem
+        `topic` no payload simplesmente não entram no resultado.
+        """
+        try:
+            await self._ensure_collection()
+            response = await self._client.facet(
+                collection_name=self._collection,
+                key="topic",
+                limit=limit,
+                exact=True,
+            )
+        except Exception:
+            self._invalidate_collection()
+            raise
+        counts = {str(hit.value): int(hit.count) for hit in response.hits}
+        return sorted(counts.items())
 
     async def count_by_topic(self, topic: str) -> int:
         """Conta as memórias persistidas de um tópico (exato). Self-heal em falha."""
