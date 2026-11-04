@@ -90,6 +90,25 @@ jobs:
         # pacote local como falha em vez de simplesmente pular.
         run: .venv/bin/pip install "pip-audit>=2.7.0" && .venv/bin/pip-audit --skip-editable
 
+  compose-config:
+    # O código é testado (backend/frontend), as imagens são construídas e as
+    # deps auditadas — mas o `docker-compose.yml` em si nunca era validado. Um
+    # anchor YAML quebrado, um `depends_on` com condição inválida ou uma
+    # interpolação `${VAR}` sem default passava por TODO o pipeline e só
+    # aparecia no `docker compose up` do host, derrubando o stack inteiro.
+    # O alvo `make config` já existia para isso e não rodava em lugar nenhum do
+    # CI (o `make ci` até documentava a ausência).
+    name: Compose (config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Valida o docker-compose
+        # Sem .env (gitignored): todo valor usado tem default via
+        # `${VAR:-default}`, então `config` renderiza exatamente o compose de um
+        # clone novo. Falha em interpolação sem default, chave desconhecida e
+        # serviço/rede/volume mal referenciado.
+        run: docker compose config -q
+
   docker-build:
     # Os jobs acima testam o código no runner (pip/npm), nunca a IMAGEM: um
     # Dockerfile quebrado (COPY de arquivo renomeado, dependência faltando no

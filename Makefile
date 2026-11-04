@@ -45,8 +45,9 @@ docker-build:
 	docker build -t sma-backend:ci ./backend
 	docker build -t sma-frontend:ci ./frontend
 
-# Roda o CI inteiro, na mesma ordem do .github/workflows/ci.yml: backend
-# (ruff + mypy + pytest), auditoria de CVE das deps, frontend (npm ci + build +
-# test) e as imagens Docker. Não inclui `config` porque o CI também não valida o
-# compose — o alvo existe para o vermelho aparecer ANTES do push, não depois.
-ci: test audit frontend-build frontend-test docker-build
+# Roda o CI inteiro, na mesma ordem do .github/workflows/ci.yml: validação do
+# compose, backend (ruff + mypy + pytest), auditoria de CVE das deps, frontend
+# (npm ci + build + test) e as imagens Docker. O `config` entrou na lista quando
+# o CI passou a ter o job `compose-config` — antes o compose só era validado se
+# alguém lembrasse de rodar `make config` na mão.
+ci: config test audit frontend-build frontend-test docker-build
