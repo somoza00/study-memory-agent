@@ -8,7 +8,7 @@ health aberto.
 from __future__ import annotations
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import app.core.security as security_module
@@ -61,3 +61,27 @@ def test_real_app_locks_api_but_keeps_health_open(
     client = TestClient(real_app)
     assert client.get("/api/memories").status_code == 401
     assert client.get("/health").status_code == 200
+
+
+async def test_non_ascii_key_is_rejected_with_401_not_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Header com caractere não-ASCII vira 401, não TypeError (500).
+
+    `hmac.compare_digest` recusa `str` não-ASCII com TypeError; o header chega
+    do servidor decodificado em latin-1, então um `X-API-Key: café` cru (bytes
+    UTF-8) produzia code points > 127 e a exceção subia como 500.
+    """
+    monkeypatch.setattr(security_module.settings, "api_key", "secret123")
+
+    with pytest.raises(HTTPException) as excinfo:
+        await require_api_key(x_api_key="café")
+
+    assert excinfo.value.status_code == 401
+
+
+async def test_ascii_key_still_matches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A comparação em bytes não muda o caminho feliz (chave correta passa)."""
+    monkeypatch.setattr(security_module.settings, "api_key", "secret123")
+
+    assert await require_api_key(x_api_key="secret123") is None
