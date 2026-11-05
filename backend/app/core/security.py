@@ -28,6 +28,13 @@ async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     """
     if settings.api_key is None:
         return
-    if x_api_key is None or not hmac.compare_digest(x_api_key, settings.api_key):
+    # Comparação em BYTES: `hmac.compare_digest` com `str` levanta TypeError
+    # quando algum dos lados tem caractere não-ASCII (o header chega decodificado
+    # em latin-1 pelo servidor, então `X-API-Key: café` cru vira str com code
+    # points > 127). O TypeError subia como 500 num request que deveria ser só
+    # 401 — e a regra do projeto é nunca devolver 500 cru pro cliente.
+    if x_api_key is None or not hmac.compare_digest(
+        x_api_key.encode("utf-8"), settings.api_key.encode("utf-8")
+    ):
         security_logger.warning("auth failed", extra={"path": "api"})
         raise HTTPException(status_code=401, detail="X-API-Key inválida ou ausente")
