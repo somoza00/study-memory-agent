@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 
+from app.api.deps import close_services
 from app.api.routers.chat import router as chat_router
 from app.api.routers.health import router as health_router
 from app.api.routers.memories import router as memories_router
@@ -22,10 +23,18 @@ from app.services.observability import configure_langfuse_otel
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Configura logging (com redação de segredos) e o tracing OTel → Langfuse."""
+    """Configura logging (com redação de segredos) e o tracing OTel → Langfuse.
+
+    No shutdown fecha os clientes de rede dos singletons (Qdrant e OpenAI dos
+    embeddings): eles são criados uma vez e guardam pool httpx próprio, que sem
+    o fechamento explícito só seria liberado quando o processo morresse.
+    """
     configure_logging()
     configure_langfuse_otel()
-    yield
+    try:
+        yield
+    finally:
+        await close_services()
 
 
 app = FastAPI(title="Study Memory Agent", version="0.1.0", lifespan=lifespan)
