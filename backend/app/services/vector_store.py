@@ -398,3 +398,13 @@ class VectorStore:
             return True
         except Exception:
             return False
+
+    async def close(self) -> None:
+        """Fecha o cliente Qdrant (pool httpx) no shutdown da aplicação.
+
+        O `AsyncQdrantClient` mantém um pool de conexões próprio; sem o close
+        explícito ele só é liberado quando o processo morre — e, em qualquer
+        ciclo de vida de app (testes com lifespan por caso, reload do uvicorn),
+        fica um pool órfão por instância. Idempotente.
+        """
+        await self._client.close()

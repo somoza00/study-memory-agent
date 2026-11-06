@@ -92,6 +92,18 @@ class EmbeddingService:
             vector = await self._embed_remote(text)
         return self._check_dim(vector)
 
+    async def close(self) -> None:
+        """Fecha o cliente OpenAI, se ele chegou a ser criado.
+
+        O cliente é lazy (só nasce no primeiro embedding remoto) e o pool httpx
+        dele não é liberado por GC de forma garantida: sem este fechamento o
+        processo guarda as conexões até morrer. Idempotente e seguro quando o
+        provedor é `local` (nenhum cliente foi criado).
+        """
+        client, self._client = self._client, None
+        if client is not None:
+            await client.close()
+
     async def _embed_remote(self, text: str) -> list[float]:
         """Embedding via endpoint OpenAI-compatível."""
         response = await self._get_client().embeddings.create(input=text, model=self._model)
