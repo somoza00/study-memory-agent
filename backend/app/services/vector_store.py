@@ -192,33 +192,10 @@ class VectorStore:
     async def list_topics(self, limit: int = 50) -> list[str]:
         """Retorna até `limit` tópicos distintos presentes na collection.
 
-        Para o scroll assim que o limite é atingido (coleção pode ser grande;
-        antes fazia scan da coleção inteira, resposta/scan runaway).
+        Uma chamada `facet` (índice de payload) em vez de varrer a collection —
+        ver `_distinct_values`.
         """
-        topics: set[str] = set()
-        offset: types.PointId | None = None
-        try:
-            await self._ensure_collection()
-            while len(topics) < limit:
-                records, next_page = await self._client.scroll(
-                    collection_name=self._collection,
-                    scroll_filter=None,
-                    limit=100,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                for record in records:
-                    topic = (record.payload or {}).get("topic")
-                    if topic:
-                        topics.add(str(topic))
-                if next_page is None or not records:
-                    break
-                offset = next_page
-        except Exception:
-            self._invalidate_collection()
-            raise
-        return sorted(topics)[:limit]
+        return await self._distinct_values("topic", limit)
 
     async def count(
         self, topic: str | None = None, session_id: str | None = None, *, source: str | None = None
@@ -253,14 +230,39 @@ class VectorStore:
     async def list_sessions(self, limit: int = 50) -> list[str]:
         """Retorna até `limit` sessões distintas presentes na collection.
 
-        Espelha `list_topics` (scroll que para ao juntar `limit` sessões): a
-        collection pode ser grande, então não varremos tudo.
+        Espelha `list_topics` (mesma chamada `facet`, agora sobre `session_id`).
         """
-        sessions: set[str] = set()
+        return await self._distinct_values("session_id", limit)
+
+    async def _distinct_values(self, key: str, limit: int) -> list[str]:
+        """Valores distintos de um campo do payload (até `limit`), em UMA chamada.
+
+        O caminho anterior era `scroll` da collection até juntar `limit` valores
+        distintos: com 3 tópicos numa collection de 10 mil memórias ele lia os
+        10 mil pontos, e `MemoryService.canonical_topic` invalida o cache a cada
+        gravação — então CADA `store` pagava esse scan inteiro. O `facet` usa o
+        índice de payload (criado em `_ensure_collection`), então o custo é o do
+        índice, não o do tamanho da collection.
+
+        Servidor anterior ao 1.12 (ou cliente sem `facet`) não tem a chamada: cai
+        no scroll antigo, que continua correto (só custoso).
+        """
+        await self._ensure_collection()
+        try:
+            response = await self._client.facet(
+                collection_name=self._collection, key=key, limit=limit, exact=True
+            )
+        except Exception:
+            return await self._distinct_values_by_scroll(key, limit)
+        return sorted({str(hit.value) for hit in response.hits})
+
+    async def _distinct_values_by_scroll(self, key: str, limit: int) -> list[str]:
+        """Fallback sem `facet`: scroll até juntar `limit` valores distintos."""
+        values: set[str] = set()
         offset: types.PointId | None = None
         try:
             await self._ensure_collection()
-            while len(sessions) < limit:
+            while len(values) < limit:
                 records, next_page = await self._client.scroll(
                     collection_name=self._collection,
                     scroll_filter=None,
@@ -270,16 +272,16 @@ class VectorStore:
                     with_vectors=False,
                 )
                 for record in records:
-                    session = (record.payload or {}).get("session_id")
-                    if session:
-                        sessions.add(str(session))
+                    value = (record.payload or {}).get(key)
+                    if value:
+                        values.add(str(value))
                 if next_page is None or not records:
                     break
                 offset = next_page
         except Exception:
             self._invalidate_collection()
             raise
-        return sorted(sessions)[:limit]
+        return sorted(values)[:limit]
 
     async def topic_counts(self, limit: int = 50) -> list[tuple[str, int]]:
         """Contagem exata de memórias por tópico, em UMA chamada (`facet`).
