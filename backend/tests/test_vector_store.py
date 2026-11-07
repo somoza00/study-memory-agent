@@ -17,12 +17,23 @@ from app.services.vector_store import VectorStore
 class _StubQdrant:
     """Cliente Qdrant mínimo: registra a chamada de `facet` e devolve o que o teste mandar."""
 
-    def __init__(self, hits: list[Any] | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        hits: list[Any] | None = None,
+        error: Exception | None = None,
+        records: list[Any] | None = None,
+        scroll_error: Exception | None = None,
+    ) -> None:
         self.hits = hits or []
         self.error = error
         self.facet_calls: list[dict[str, Any]] = []
         self.indexed_fields: list[str] = []
         self.exists = True
+        # Respostas do caminho de fallback (`scroll`): cada elemento é um Record
+        # com `payload`.
+        self.records = records or []
+        self.scroll_error = scroll_error
+        self.scroll_calls: list[dict[str, Any]] = []
 
     async def collection_exists(self, _collection: str) -> bool:
         return self.exists
@@ -38,6 +49,12 @@ class _StubQdrant:
         if self.error is not None:
             raise self.error
         return SimpleNamespace(hits=self.hits)
+
+    async def scroll(self, **kwargs: Any) -> tuple[list[Any], None]:
+        self.scroll_calls.append(kwargs)
+        if self.scroll_error is not None:
+            raise self.scroll_error
+        return self.records, None
 
 
 def make_store(client: _StubQdrant) -> VectorStore:
@@ -105,3 +122,67 @@ async def test_topic_counts_propagates_errors_and_allows_retry() -> None:
         raise AssertionError("topic_counts deveria propagar o erro do Qdrant")
 
     assert store._collection_ready is False
+
+
+async def test_list_topics_uses_one_facet_call_instead_of_a_full_scroll() -> None:
+    """`list_topics` resolve a lista num `facet` (índice), sem varrer a collection.
+
+    O scroll anterior lia a collection INTEIRA quando havia menos tópicos
+    distintos que `limit` (3 tópicos em 10 mil memórias = 10 mil pontos lidos) —
+    e `canonical_topic` invalida o cache a cada gravação, então cada store pagava
+    esse scan.
+    """
+    client = _StubQdrant(
+        hits=[
+            SimpleNamespace(value="python", count=3),
+            SimpleNamespace(value="fastapi", count=7),
+        ],
+        records=[SimpleNamespace(payload={"topic": "nao-deveria-ser-lido"})],
+    )
+    store = make_store(client)
+
+    assert await store.list_topics(50) == ["fastapi", "python"]
+    assert client.facet_calls == [
+        {"collection_name": store._collection, "key": "topic", "limit": 50, "exact": True}
+    ]
+    assert client.scroll_calls == []  # nenhum ponto lido da collection
+
+
+async def test_list_sessions_uses_facet_on_session_id() -> None:
+    client = _StubQdrant(hits=[SimpleNamespace(value="sess-2", count=1)])
+    store = make_store(client)
+
+    assert await store.list_sessions(10) == ["sess-2"]
+    assert client.facet_calls[0]["key"] == "session_id"
+    assert client.facet_calls[0]["limit"] == 10
+
+
+async def test_list_topics_falls_back_to_scroll_without_facet() -> None:
+    """Servidor/Qdrant anterior ao 1.12 (sem `facet`) continua funcionando."""
+    client = _StubQdrant(
+        error=AttributeError("facet"),
+        records=[
+            SimpleNamespace(payload={"topic": "python"}),
+            SimpleNamespace(payload={"topic": "fastapi"}),
+            SimpleNamespace(payload={"topic": "python"}),
+            SimpleNamespace(payload={}),
+        ],
+    )
+    store = make_store(client)
+
+    assert await store.list_topics(50) == ["fastapi", "python"]
+    assert len(client.scroll_calls) == 1
+
+
+async def test_list_sessions_fallback_respects_limit_and_dedupes() -> None:
+    client = _StubQdrant(
+        error=AttributeError("facet"),
+        records=[
+            SimpleNamespace(payload={"session_id": "sess-1"}),
+            SimpleNamespace(payload={"session_id": "sess-1"}),
+            SimpleNamespace(payload={"session_id": "sess-2"}),
+        ],
+    )
+    store = make_store(client)
+
+    assert await store.list_sessions(1) == ["sess-1"]
