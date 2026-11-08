@@ -9,6 +9,8 @@ esta camada junto com os embeddings.
 
 from __future__ import annotations
 
+import asyncio
+
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.conversions import common_types as types
 from qdrant_client.models import (
@@ -32,6 +34,17 @@ from app.core.config import Settings, settings
 # inteira para cada filtro E recusa o `facet` ("No appropriate index for
 # faceting"), então estes índices são pré-requisito das duas coisas.
 _PAYLOAD_INDEX_FIELDS = ("topic", "session_id", "source")
+
+# Teto do `ping()` — a sonda usada por `/health/ready`, `/api/health` e pelo
+# `GET /api/memories/{id}` (para distinguir 404 de 503). Sem ele a chamada fica
+# presa no timeout default do httpx (5s), que é EXATAMENTE o `timeout: 5s` do
+# healthcheck do compose: um Qdrant que aceita a conexão TCP e depois não
+# responde (conexão meio-aberta após troca de WiFi/VPN, host suspenso) fazia o
+# Docker matar a sonda por timeout e contar falha, em vez de receber o 503
+# "degraded" limpo — e cada probe segurava um slot de request pelos 5s
+# inteiros. 2s deixa folga dentro do orçamento do healthcheck e transforma
+# "pendurado" em "fora do ar", como o caso de conexão recusada já era.
+_PING_TIMEOUT_SECONDS = 2.0
 
 
 class VectorStore:
@@ -394,9 +407,14 @@ class VectorStore:
         return records, (str(next_page) if next_page is not None else None)
 
     async def ping(self) -> bool:
-        """Retorna `True` se o Qdrant responder; `False` em qualquer erro (não levanta)."""
+        """Retorna `True` se o Qdrant responder; `False` em qualquer erro (não levanta).
+
+        Limitado por `_PING_TIMEOUT_SECONDS`: uma conexão que aceita o TCP e não
+        responde conta como indisponível dentro do orçamento do healthcheck do
+        compose, em vez de prender a sonda de readiness.
+        """
         try:
-            await self._client.get_collections()
+            await asyncio.wait_for(self._client.get_collections(), _PING_TIMEOUT_SECONDS)
             return True
         except Exception:
             return False
