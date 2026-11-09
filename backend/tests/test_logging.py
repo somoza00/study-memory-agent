@@ -89,3 +89,41 @@ def test_redaction_covers_preexisting_exc_text() -> None:
     SecretRedactionFilter([secret]).filter(record)
 
     assert secret not in logging.Formatter().format(record)
+
+
+def test_known_secrets_includes_embedding_key(monkeypatch) -> None:
+    """Regressão: `EMBEDDING_API_KEY` é um segredo PRÓPRIO e precisa ser redigido.
+
+    O provedor de embeddings pode ser outro (chave diferente da do agente). A
+    redação só conhecia `OPENAI_API_KEY`/`API_KEY`/Langfuse: a chave dos
+    embeddings vazava inteira em erro do SDK (que ecoa a chave) e no traceback.
+    """
+    from app.core import logging as app_logging
+
+    secret = "sk-embedding-secret-0001"
+    monkeypatch.setattr(app_logging.settings, "embedding_api_key", secret)
+
+    assert secret in app_logging._known_secrets()
+
+    record = logging.LogRecord(
+        name="app.services.embedding_service",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg=f"falha no embedding com a chave {secret}",
+        args=(),
+        exc_info=None,
+    )
+    app_logging.SecretRedactionFilter(app_logging._known_secrets()).filter(record)
+
+    assert secret not in record.msg
+    assert "***" in record.msg
+
+
+def test_known_secrets_skips_blank_embedding_key(monkeypatch) -> None:
+    """Chave vazia (default, provedor `local`) não vira segredo de comprimento 0."""
+    from app.core import logging as app_logging
+
+    monkeypatch.setattr(app_logging.settings, "embedding_api_key", "")
+
+    assert "" not in app_logging._known_secrets()

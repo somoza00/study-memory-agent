@@ -54,6 +54,13 @@ def _known_secrets() -> list[str]:
     """Valores de credencial configurados no Settings, prontos para redigir."""
     candidates = [
         settings.openai_api_key,
+        # A chave dos EMBEDDINGS é um segredo próprio (`EMBEDDING_API_KEY`), não
+        # uma cópia da do agente: o projeto permite apontar os embeddings para
+        # outro endpoint (OpenAI só para embedding, OpenCode Zen/Go para o chat).
+        # Fora desta lista, um erro do SDK que ecoa a chave ("Incorrect API key
+        # provided: sk-...") saía inteiro no log de `/api/memories`, no recall do
+        # chat e em qualquer traceback — justamente a chave que não era redigida.
+        settings.embedding_api_key,
         settings.api_key,
         settings.langfuse_secret_key,
         settings.langfuse_public_key,
