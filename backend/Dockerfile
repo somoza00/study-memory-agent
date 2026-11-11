@@ -1,4 +1,11 @@
-FROM python:3.14-slim
+# Imagem-base pinada por DIGEST do índice multi-arch (não pela tag `3.14-slim`,
+# que é mutável): a mesma revisão deste Dockerfile passa a construir sempre a
+# mesma base, em vez de mudar sozinha num repush do mantenedor ou numa tag
+# trocada no registry. É o padrão que os repos irmãos (myown-llm-gateway,
+# evaluation-framework) já seguem, e o Dependabot mantém o digest atualizado —
+# o bloco `docker` do .github/dependabot.yml cobre `/backend` e `/frontend`,
+# e o job `docker-build` do CI valida o build a cada push/PR.
+FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
