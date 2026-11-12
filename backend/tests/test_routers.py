@@ -17,6 +17,10 @@ from app.models.memory import MemoryMetadata, StoredMemory
 from app.services.agent_service import AgentService, ChatResult, StreamEvent
 from app.services.memory_service import RenameTopicResult, RenameTopicStatus
 
+# Id de memória usado nos testes de rota: a API só aceita UUID (422 para o
+# resto) — os ids vêm do Qdrant, que sempre gera UUID.
+_MEMORY_ID = "6f1f4c2e-0000-4000-8000-000000000001"
+
 
 class _FakeStreamAgent:
     """Substituto do AgentService que emite eventos SSE sem tocar o LLM."""
@@ -267,9 +271,9 @@ def test_delete_memory_returns_204() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.delete("/api/memories/abc")
+        resp = client.delete(f"/api/memories/{_MEMORY_ID}")
         assert resp.status_code == 204
-        memory.delete.assert_awaited_once_with("abc")
+        memory.delete.assert_awaited_once_with(_MEMORY_ID)
     finally:
         app.dependency_overrides.clear()
 
@@ -286,10 +290,10 @@ def test_get_memory_returns_memory_by_id() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.get("/api/memories/abc")
+        resp = client.get(f"/api/memories/{_MEMORY_ID}")
         assert resp.status_code == 200, resp.text
         assert resp.json()["id"] == "abc"
-        memory.get.assert_awaited_once_with("abc")
+        memory.get.assert_awaited_once_with(_MEMORY_ID)
     finally:
         app.dependency_overrides.clear()
 
@@ -303,7 +307,7 @@ def test_get_memory_404_when_missing() -> None:
     app.dependency_overrides[get_vector_store] = lambda: store
     try:
         client = TestClient(app)
-        resp = client.get("/api/memories/xyz")
+        resp = client.get(f"/api/memories/{_MEMORY_ID}")
         assert resp.status_code == 404
     finally:
         app.dependency_overrides.clear()
@@ -319,7 +323,7 @@ def test_get_memory_503_when_storage_unavailable() -> None:
     app.dependency_overrides[get_vector_store] = lambda: store
     try:
         client = TestClient(app)
-        resp = client.get("/api/memories/xyz")
+        resp = client.get(f"/api/memories/{_MEMORY_ID}")
         assert resp.status_code == 503
     finally:
         app.dependency_overrides.clear()
@@ -332,8 +336,30 @@ def test_delete_memory_503_when_storage_unavailable() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.delete("/api/memories/abc")
+        resp = client.delete(f"/api/memories/{_MEMORY_ID}")
         assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_memory_id_malformado_vira_422_e_nao_503() -> None:
+    """Id que não é UUID ⇒ 422 em GET/DELETE/PATCH, sem tocar o serviço.
+
+    Com o id como texto livre, "nao-e-uuid" ia até o Qdrant, que o rejeitava
+    ("not a valid point ID"); o `MemoryService` trata qualquer exceção como
+    armazenamento indisponível e o DELETE/PATCH respondiam 503 — dizendo ao
+    cliente que o banco vetorial estava fora quando o erro era o id.
+    """
+    memory = _memory_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        assert client.delete("/api/memories/nao-e-uuid").status_code == 422
+        assert client.get("/api/memories/nao-e-uuid").status_code == 422
+        assert client.patch("/api/memories/nao-e-uuid", json={"text": "novo"}).status_code == 422
+        memory.delete.assert_not_awaited()
+        memory.get.assert_not_awaited()
+        memory.update.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()
 
@@ -783,10 +809,10 @@ def test_update_memory_returns_updated_memory() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.patch("/api/memories/abc", json={"text": "texto novo"})
+        resp = client.patch(f"/api/memories/{_MEMORY_ID}", json={"text": "texto novo"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["text"] == "texto novo"
-        memory.update.assert_awaited_once_with("abc", "texto novo")
+        memory.update.assert_awaited_once_with(_MEMORY_ID, "texto novo")
     finally:
         app.dependency_overrides.clear()
 
@@ -799,7 +825,7 @@ def test_update_memory_404_when_missing() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.patch("/api/memories/xyz", json={"text": "novo"})
+        resp = client.patch(f"/api/memories/{_MEMORY_ID}", json={"text": "novo"})
         assert resp.status_code == 404
     finally:
         app.dependency_overrides.clear()
@@ -814,7 +840,7 @@ def test_update_memory_503_when_storage_unavailable() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.patch("/api/memories/abc", json={"text": "novo"})
+        resp = client.patch(f"/api/memories/{_MEMORY_ID}", json={"text": "novo"})
         assert resp.status_code == 503
     finally:
         app.dependency_overrides.clear()
@@ -829,7 +855,7 @@ def test_update_memory_502_when_embedding_fails() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.patch("/api/memories/abc", json={"text": "novo"})
+        resp = client.patch(f"/api/memories/{_MEMORY_ID}", json={"text": "novo"})
         assert resp.status_code == 502
         assert "embedding api down" in resp.json()["detail"]
     finally:
@@ -842,7 +868,7 @@ def test_update_memory_rejects_blank_text() -> None:
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
-        resp = client.patch("/api/memories/abc", json={"text": "   "})
+        resp = client.patch(f"/api/memories/{_MEMORY_ID}", json={"text": "   "})
         assert resp.status_code == 422
         memory.update.assert_not_awaited()
     finally:
