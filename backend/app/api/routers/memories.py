@@ -233,11 +233,19 @@ async def delete_topic(
 
 @router.delete("/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_memory(
-    memory_id: str,
+    memory_id: uuid.UUID,
     memory: MemoryService = Depends(get_memory_service),
 ) -> Response:
-    """Remove uma memória pelo id; 503 se o armazenamento não confirmou a remoção."""
-    if not await memory.delete(memory_id):
+    """Remove uma memória pelo id; 503 se o armazenamento não confirmou a remoção.
+
+    O id é tipado como `uuid.UUID` (os ids vêm do Qdrant, sempre UUID): um id
+    malformado vira 422 na validação do FastAPI. Como `str` livre, ele chegava
+    ao Qdrant, que levantava erro de id inválido — o `MemoryService.delete`
+    trata ``Exception`` como "armazenamento indisponível" e o router respondia
+    503, dizendo ao cliente que o banco vetorial estava fora quando o problema
+    era o id (o GET, para o mesmo id, dizia 404). 422 diz a verdade.
+    """
+    if not await memory.delete(str(memory_id)):
         raise HTTPException(
             status_code=503,
             detail="armazenamento indisponível: não foi possível remover a memória",
@@ -247,7 +255,7 @@ async def delete_memory(
 
 @router.patch("/memories/{memory_id}", response_model=StoredMemory)
 async def update_memory(
-    memory_id: str,
+    memory_id: uuid.UUID,
     payload: MemoryUpdate,
     memory: MemoryService = Depends(get_memory_service),
 ) -> StoredMemory:
@@ -259,7 +267,7 @@ async def update_memory(
     502 se o embedding falhar (nunca 500 cru — regra do AGENTS.md).
     """
     try:
-        result = await memory.update(memory_id, payload.text)
+        result = await memory.update(str(memory_id), payload.text)
     except OpenAIError as exc:
         # Espelha create_memory: falha de embedding (OpenAI) vira 502, não 500.
         raise HTTPException(
@@ -281,14 +289,14 @@ async def update_memory(
 
 @router.get("/memories/{memory_id}", response_model=StoredMemory)
 async def get_memory(
-    memory_id: str,
+    memory_id: uuid.UUID,
     memory: MemoryService = Depends(get_memory_service),
     store: VectorStore = Depends(get_vector_store),
 ) -> StoredMemory:
     """Retorna uma memória pelo id; 404 se não existir; 503 se o Qdrant estiver
     offline e não der para verificar (não mente "não encontrada" — um 404 falso
     numa indisponibilidade transitória faria o cliente recriar e duplicar)."""
-    found = await memory.get(memory_id)
+    found = await memory.get(str(memory_id))
     if found is None:
         if not await store.ping():
             raise HTTPException(
