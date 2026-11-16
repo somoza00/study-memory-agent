@@ -35,6 +35,9 @@ x-backend-env: &backend-env
   # x-opencode-session (roteamento/cache de prompt).
   OPENAI_EXTRA_HEADERS: ${OPENAI_EXTRA_HEADERS:-}
   AGENT_MODEL: ${AGENT_MODEL:-gpt-4o-mini}
+  # Teto de tempo de uma resposta do agente: sem ele o read timeout do SDK
+  # (600s) deixava o chat pendurado quando o provedor aceitava a conexão e travava.
+  AGENT_TIMEOUT_SECONDS: ${AGENT_TIMEOUT_SECONDS:-120}
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
   # Desligado por default: com o profile observability fora do ar o exporter só

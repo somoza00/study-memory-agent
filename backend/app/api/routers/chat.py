@@ -16,7 +16,11 @@ from openai import OpenAIError
 
 from app.api.deps import get_agent_service
 from app.models.chat import ChatRequest, ChatResponse
-from app.services.agent_service import AgentService, ProviderNotConfiguredError
+from app.services.agent_service import (
+    AgentService,
+    AgentTimeoutError,
+    ProviderNotConfiguredError,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -42,6 +46,14 @@ async def chat(
                 "nenhum provedor de LLM configurado: defina OPENAI_API_KEY "
                 "(ou OPENAI_BASE_URL para um endpoint OpenAI-compatível)"
             ),
+        ) from exc
+    except AgentTimeoutError as exc:
+        # 504 (Gateway Timeout): o provedor aceitou a conexão e não respondeu.
+        # Sem um tipo próprio isto caía no `except Exception` abaixo e virava
+        # 502 "erro interno", culpando o app por uma indisponibilidade do
+        # provedor — e o cliente não sabia que podia tentar de novo.
+        raise HTTPException(
+            status_code=504, detail=f"O modelo não respondeu a tempo: {exc}"
         ) from exc
     except OpenAIError as exc:
         # Espelha o tratamento do endpoint de streaming: falha do provider
@@ -101,6 +113,10 @@ async def chat_stream(
                     ),
                 }
             )
+        except AgentTimeoutError as exc:
+            # Streaming: os headers já foram enviados (200), então o erro vai
+            # como evento — mas com a mensagem certa, não "erro interno".
+            yield _sse({"type": "error", "detail": f"O modelo não respondeu a tempo: {exc}"})
         except OpenAIError as exc:
             yield _sse({"type": "error", "detail": str(exc)})
         except Exception as exc:
