@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     #               com escopo por sessão o agente "esquecia" tudo do dia anterior.
     #   "session" = restringe à sessão atual (isolamento por conversa).
     recall_scope: Literal["all", "session"] = "all"
+    # Teto de tempo de UMA resposta do agente (vale para /api/chat e
+    # /api/chat/stream). O SDK da OpenAI usa read=600s com 2 retries por
+    # default: um provedor que aceita a conexão e trava prendia o request (e a
+    # UI, que fica em "carregando") por até ~30min, com o /health respondendo
+    # "ok" — o processo está vivo, só a resposta não volta. É o mesmo remédio
+    # já aplicado a EMBEDDING_TIMEOUT_SECONDS, que só cobria os embeddings.
+    agent_timeout_seconds: float = 120.0
     # Tracing OTel → Langfuse. Desligado por default: sem o Langfuse no ar, o
     # exporter só gera ruído no log e timeout a cada span. Ligue junto com o
     # profile `observability` do compose.
@@ -114,6 +121,14 @@ class Settings(BaseSettings):
         """`EMBEDDING_TIMEOUT_SECONDS=0`/negativo falharia toda chamada na hora."""
         if value <= 0:
             raise ValueError("EMBEDDING_TIMEOUT_SECONDS precisa ser maior que zero")
+        return value
+
+    @field_validator("agent_timeout_seconds")
+    @classmethod
+    def _positive_agent_timeout(cls, value: float) -> float:
+        """`AGENT_TIMEOUT_SECONDS=0`/negativo falharia toda resposta na hora."""
+        if value <= 0:
+            raise ValueError("AGENT_TIMEOUT_SECONDS precisa ser maior que zero")
         return value
 
     @field_validator("recall_min_score", mode="before")

@@ -10,6 +10,7 @@ durante a conversa. A instrumentação usa o OTEL nativo do Pydantic AI
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -25,6 +26,16 @@ from app.models.memory import MemoryMetadata, MemoryResult
 from app.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
+
+
+class AgentTimeoutError(RuntimeError):
+    """O provedor do agente não respondeu dentro de `AGENT_TIMEOUT_SECONDS`.
+
+    Tipado para o router responder 504 (em vez do 502 genérico de "erro
+    interno"): provedor que aceita a conexão e trava é indisponibilidade de
+    terceiro, não bug do app — e o cliente precisa distinguir "demorou demais"
+    de "quebrou".
+    """
 
 
 class ProviderNotConfiguredError(RuntimeError):
@@ -234,7 +245,16 @@ class AgentService:
             threshold=self._config.recall_score_threshold,
             session_filter=session_filter,
         )
-        result = await agent.run(message, deps=deps, model=model)
+        # Teto explícito em volta da chamada: sem isto o único limite era o
+        # read timeout do SDK (600s por leitura, 2 retries), então um provedor
+        # travado segurava o request — e a UI — por ~30min.
+        try:
+            async with asyncio.timeout(self._config.agent_timeout_seconds):
+                result = await agent.run(message, deps=deps, model=model)
+        except TimeoutError as exc:
+            raise AgentTimeoutError(
+                f"o provedor não respondeu em {self._config.agent_timeout_seconds:g}s"
+            ) from exc
         return ChatResult(response=str(result.output), memories_used=len(memories))
 
     async def stream_chat(
@@ -268,9 +288,18 @@ class AgentService:
             threshold=self._config.recall_score_threshold,
             session_filter=session_filter,
         )
-        async with agent.run_stream(message, deps=deps, model=model) as agent_run:
-            async for delta in agent_run.stream_text(delta=True):
-                yield StreamEvent(type="token", content=delta)
+        # O teto cobre a chamada E o consumo do stream: o SDK não tem deadline
+        # total, só por leitura, e um provedor que manda um token a cada 9min
+        # nunca estourava o read timeout (a UI ficava "gerando" para sempre).
+        try:
+            async with asyncio.timeout(self._config.agent_timeout_seconds):
+                async with agent.run_stream(message, deps=deps, model=model) as agent_run:
+                    async for delta in agent_run.stream_text(delta=True):
+                        yield StreamEvent(type="token", content=delta)
+        except TimeoutError as exc:
+            raise AgentTimeoutError(
+                f"o provedor não respondeu em {self._config.agent_timeout_seconds:g}s"
+            ) from exc
         yield StreamEvent(type="done", memories_used=len(memories))
 
 

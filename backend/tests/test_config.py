@@ -105,3 +105,21 @@ def test_enabled_tracing_installs_exporter() -> None:
         configure_langfuse_otel(Settings(langfuse_enabled=True))
 
     set_provider.assert_called_once()
+
+
+def test_agent_timeout_defaults_to_two_minutes() -> None:
+    """Chat sem teto de tempo ficava pendurado até o read timeout do SDK (600s)."""
+    assert Settings(_env_file=None).agent_timeout_seconds == 120.0
+
+
+def test_agent_timeout_accepts_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "45")
+    assert Settings(_env_file=None).agent_timeout_seconds == 45
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_agent_timeout_must_be_positive(monkeypatch, value: str) -> None:
+    """Zero/negativo faria TODA resposta falhar na hora — melhor não subir."""
+    monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

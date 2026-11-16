@@ -6,13 +6,20 @@ Não se chama LLM: `_build_agent` é substituído por um `AsyncMock`, e o
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.config import Settings
 from app.models.memory import MemoryMetadata, MemoryResult
-from app.services.agent_service import AgentService, ChatResult, ProviderNotConfiguredError
+from app.services.agent_service import (
+    AgentService,
+    AgentTimeoutError,
+    ChatResult,
+    ProviderNotConfiguredError,
+)
 
 
 def _memory_mock() -> tuple[AsyncMock, list[MemoryResult]]:
@@ -242,3 +249,64 @@ async def test_chat_without_model_keeps_configured_model() -> None:
         await service.chat("oi", session_id="s1")
 
     assert fake_agent.run.await_args.kwargs["model"] is None
+
+
+class _HangingRunStream:
+    """`run_stream` que nunca termina: simula provedor que aceita e trava."""
+
+    async def __aenter__(self) -> _HangingRunStream:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
+
+    async def stream_text(self, *, delta: bool = False):
+        del delta
+        while True:
+            await asyncio.sleep(0.01)
+            yield "ping"
+
+
+class _HangingAgent:
+    """Agente cujo `run` bloqueia para sempre (o provedor não responde)."""
+
+    async def run(self, *args: object, **kwargs: object) -> object:
+        del args, kwargs
+        await asyncio.Event().wait()
+        raise AssertionError("inalcançável")
+
+    def run_stream(self, *args: object, **kwargs: object) -> _HangingRunStream:
+        del args, kwargs
+        return _HangingRunStream()
+
+
+async def test_chat_stops_at_agent_timeout() -> None:
+    """Provedor mudo vira `AgentTimeoutError` em vez de segurar o request.
+
+    O SDK da OpenAI usa read=600s com 2 retries: sem teto próprio, um provedor
+    que aceita a conexão e trava prendia POST /api/chat (e a UI) por ~30min,
+    com o /health respondendo "ok" porque o processo está vivo.
+    """
+    memory, _results = _memory_mock()
+    config = Settings(_env_file=None, agent_timeout_seconds=0.05)
+
+    with patch.object(AgentService, "_build_agent", return_value=_HangingAgent()):
+        service = AgentService(memory_service=memory, config=config)  # type: ignore[arg-type]
+        with pytest.raises(AgentTimeoutError):
+            await asyncio.wait_for(service.chat("oi", session_id="s1"), timeout=2)
+
+
+async def test_stream_chat_stops_at_agent_timeout() -> None:
+    """O teto vale também para o stream (senão a UI ficava "gerando" para sempre)."""
+    memory, _results = _memory_mock()
+    config = Settings(_env_file=None, agent_timeout_seconds=0.05)
+
+    with patch.object(AgentService, "_build_agent", return_value=_HangingAgent()):
+        service = AgentService(memory_service=memory, config=config)  # type: ignore[arg-type]
+
+        async def _consume() -> None:
+            async for _event in service.stream_chat("oi", session_id="s1"):
+                pass
+
+        with pytest.raises(AgentTimeoutError):
+            await asyncio.wait_for(_consume(), timeout=2)

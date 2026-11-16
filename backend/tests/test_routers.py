@@ -6,6 +6,7 @@ via `app.dependency_overrides` — não se testa o LLM, só o roteamento.
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from unittest.mock import AsyncMock
 
@@ -14,7 +15,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_agent_service, get_memory_service, get_vector_store
 from app.main import app
 from app.models.memory import MemoryMetadata, StoredMemory
-from app.services.agent_service import AgentService, ChatResult, StreamEvent
+from app.services.agent_service import AgentService, AgentTimeoutError, ChatResult, StreamEvent
 from app.services.memory_service import RenameTopicResult, RenameTopicStatus
 
 # Id de memória usado nos testes de rota: a API só aceita UUID (422 para o
@@ -1047,5 +1048,53 @@ def test_chat_rejects_oversized_model_name() -> None:
             json={"message": "oi", "session_id": "s1", "model": "m" * 201},
         )
         assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+class _TimeoutAgent:
+    """AgentService cujo `chat` estoura o teto de tempo do provedor."""
+
+    async def chat(self, *args: object, **kwargs: object) -> ChatResult:
+        del args, kwargs
+        raise AgentTimeoutError("o provedor não respondeu em 120s")
+
+
+class _StreamTimeoutAgent:
+    """Já emitiu um token quando o teto estourou (caso real do streaming)."""
+
+    async def stream_chat(self, *args: object, **kwargs: object):
+        del args, kwargs
+        yield StreamEvent(type="token", content="parcial")
+        raise AgentTimeoutError("o provedor não respondeu em 120s")
+
+
+def test_chat_timeout_is_504_not_502() -> None:
+    """Provedor que não responde é Gateway Timeout (504), não "erro interno"."""
+    app.dependency_overrides[get_agent_service] = lambda: _TimeoutAgent()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 504, resp.text
+        assert "não respondeu a tempo" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_stream_timeout_emits_error_event() -> None:
+    """No stream os headers já saíram (200); o timeout vira evento de erro."""
+    app.dependency_overrides[get_agent_service] = lambda: _StreamTimeoutAgent()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat/stream", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 200, resp.text
+        events = [
+            json.loads(line[len("data: "):])
+            for line in resp.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert events[0]["type"] == "token"
+        assert events[-1]["type"] == "error"
+        assert "não respondeu a tempo" in events[-1]["detail"]
     finally:
         app.dependency_overrides.clear()
