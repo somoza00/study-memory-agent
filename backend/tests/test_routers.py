@@ -6,6 +6,7 @@ via `app.dependency_overrides` — não se testa o LLM, só o roteamento.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date
 from unittest.mock import AsyncMock
@@ -263,6 +264,44 @@ def test_chat_stream_returns_sse_events() -> None:
         assert '"content": "Olá' in resp.text
         assert '"type": "done"' in resp.text
         assert '"memories_used": 2' in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_stream_emits_keepalive_while_provider_is_silent(monkeypatch) -> None:
+    """Silêncio do provedor vira `: ping` (conexão viva), não um stream parado.
+
+    Sem keep-alive o servidor não escreve NADA entre o 200 e o primeiro token;
+    um proxy com timeout de conexão ociosa (nginx 60s, Cloudflare 100s) fecha o
+    stream no meio e o cliente perde a resposta — o `: ping` é comentário SSE,
+    ignorado pelo EventSource e pelo parser do frontend.
+    """
+    from app.api.routers import chat as chat_router
+
+    class _SlowStream:
+        async def stream_chat(
+            self,
+            message: str,
+            session_id: str,
+            topic: str | None = None,
+            *,
+            model: str | None = None,
+        ):
+            del message, session_id, topic, model
+            await asyncio.sleep(0.2)  # provedor "pensando", nenhum token ainda
+            yield StreamEvent(type="token", content="Olá")
+            yield StreamEvent(type="done", memories_used=1)
+
+    monkeypatch.setattr(chat_router, "_SSE_KEEPALIVE_SECONDS", 0.05)
+    app.dependency_overrides[get_agent_service] = lambda: _SlowStream()
+    try:
+        client = TestClient(app)
+        resp = client.post("/api/chat/stream", json={"message": "oi", "session_id": "s1"})
+        assert resp.status_code == 200
+        assert ": ping" in resp.text
+        # O keep-alive não engole o stream: os eventos chegam depois dele.
+        assert resp.text.index(": ping") < resp.text.index('"content": "Olá')
+        assert '"type": "done"' in resp.text
     finally:
         app.dependency_overrides.clear()
 
