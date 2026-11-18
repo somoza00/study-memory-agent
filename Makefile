@@ -1,4 +1,4 @@
-.PHONY: up down logs build config venv lint test frontend-build frontend-test docker-build audit ci
+.PHONY: up down logs build config venv lint test frontend-build frontend-test docker-build scan audit ci
 
 up:
 	docker compose up -d --build
@@ -44,6 +44,22 @@ audit:
 docker-build:
 	docker build -t sma-backend:ci ./backend
 	docker build -t sma-frontend:ci ./frontend
+
+# Espelha os passos de Trivy do job `docker-build` do CI: as imagens eram
+# construídas mas nunca varridas, então uma CVE CRITICAL/HIGH na base
+# (python-slim, node-alpine) ou numa wheel do `[local-embeddings]`
+# (fastembed/onnxruntime) só aparecia se alguém rodasse o scanner na mão.
+# Os repos irmãos (myown-llm-gateway, evaluation-framework) já têm este alvo.
+# O Trivy é ferramenta externa (não é dev-dependency): o alvo falha com a
+# instrução de instalação em vez de fingir que varreu. Informativo
+# (exit-code 0), como no CI.
+scan: docker-build
+	@command -v trivy >/dev/null 2>&1 || { \
+		echo "trivy nao encontrado: instale (ex.: 'pacman -S trivy', 'brew install trivy')"; \
+		echo "ou rode: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity CRITICAL,HIGH sma-backend:ci"; \
+		exit 1; }
+	trivy image --severity CRITICAL,HIGH --exit-code 0 sma-backend:ci
+	trivy image --severity CRITICAL,HIGH --exit-code 0 sma-frontend:ci
 
 # Roda o CI inteiro, na mesma ordem do .github/workflows/ci.yml: validação do
 # compose, backend (ruff + mypy + pytest), auditoria de CVE das deps, frontend

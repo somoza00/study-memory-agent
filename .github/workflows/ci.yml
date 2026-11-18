@@ -124,3 +124,24 @@ jobs:
         run: docker build -t sma-backend:ci ./backend
       - name: Build imagem do frontend
         run: docker build -t sma-frontend:ci ./frontend
+      # As imagens eram construídas mas nunca varridas: uma CVE CRITICAL/HIGH na
+      # base (python-slim, node-alpine) ou numa wheel instalada pelo
+      # `pip install ".[local-embeddings]"` (fastembed/onnxruntime) só aparecia
+      # se alguém rodasse um scanner na mão. Os dois repos irmãos
+      # (myown-llm-gateway, evaluation-framework) já fazem este passo no job
+      # `docker-build`; aqui faltava. Informativo por enquanto (exit-code 0):
+      # CVE de imagem base costuma não ter fix imediato e bloquear todo PR por
+      # isso impede trabalho legítimo — o ganho agora é visibilidade no run.
+      # Promover para exit-code 1 quando houver baseline aceito.
+      - name: Scan imagem do backend (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sma-backend:ci
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - name: Scan imagem do frontend (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sma-frontend:ci
+          severity: CRITICAL,HIGH
+          exit-code: "0"
