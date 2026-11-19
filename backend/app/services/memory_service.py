@@ -32,6 +32,14 @@ _MAX_TEXT_CHARS = 4000
 _TOPIC_CACHE_TTL = 30.0
 _TOPIC_SCAN_LIMIT = 200
 
+# Teto do `limit` do recall na camada de serviço. Precisa ser o MAIOR valor que
+# um chamador legítimo pode pedir: o endpoint público `GET /api/memories/search`
+# declara `le=50`, então um teto de 20 aqui truncava a resposta em silêncio —
+# `?limit=50` devolvia no máximo 20 memórias sem avisar ninguém. Quem precisa de
+# menos (a tool `recall_memory` do agente, que tem orçamento de tokens) aplica o
+# próprio teto antes de chamar; este é só a defesa contra valor absurdo.
+_MAX_RECALL_LIMIT = 50
+
 
 class RenameTopicStatus(StrEnum):
     """Desfecho de um rename de tópico (o router traduz para o status HTTP)."""
@@ -109,8 +117,11 @@ class MemoryService:
         Retorna lista vazia se o Qdrant estiver indisponível.
         """
         # Defesa na camada de serviço (além do clamp na tool do agente):
-        # limita o volume buscado e mantém o score_threshold em [0,1].
-        limit = max(1, min(limit, 20))
+        # limita o volume buscado e mantém o score_threshold em [0,1]. O teto é
+        # `_MAX_RECALL_LIMIT` (o mesmo `le` do endpoint de busca), não um 20
+        # arbitrário: com 20 aqui, `GET /api/memories/search?limit=50` devolvia
+        # no máximo 20 itens sem dizer nada ao cliente.
+        limit = max(1, min(limit, _MAX_RECALL_LIMIT))
         min_score = max(0.0, min(min_score, 1.0))
         vector = await self._embeddings.embed(query)
         try:

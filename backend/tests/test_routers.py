@@ -253,6 +253,28 @@ def test_search_memories_exposes_recall() -> None:
         app.dependency_overrides.clear()
 
 
+def test_search_memories_accepts_documented_limit_ceiling() -> None:
+    """`?limit=50` (o `le` declarado) vale de verdade: 50 chega ao serviço, 51 é 422.
+
+    O endpoint anunciava `le=50`, mas o serviço cortava em 20: um cliente que
+    pedia 50 recebia no máximo 20 memórias sem nenhum aviso. O limite máximo
+    documentado tem de ser o mesmo dos dois lados.
+    """
+    memory = _memory_mock()
+    memory.recall.return_value = []
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/search", params={"q": "DI", "limit": 50})
+        assert resp.status_code == 200, resp.text
+        assert memory.recall.await_args.args[1] == 50
+
+        too_big = client.get("/api/memories/search", params={"q": "DI", "limit": 51})
+        assert too_big.status_code == 422, too_big.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_chat_stream_returns_sse_events() -> None:
     app.dependency_overrides[get_agent_service] = lambda: _FakeStreamAgent()
     try:
