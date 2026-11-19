@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
@@ -152,6 +153,84 @@ async def search_memories(
     except Exception as exc:
         logger.exception("GET /api/memories/search falhou com erro não-OpenAI")
         raise HTTPException(status_code=502, detail=f"Erro interno: {exc}") from exc
+
+
+# Tamanho de página do export. Não é o `limit` da API (que é bounded por
+# request): aqui é o loop interno que varre o store até o último cursor.
+_EXPORT_PAGE_SIZE = 100
+
+
+def _export_markdown(memories: list[StoredMemory]) -> str:
+    """Renderiza o backup em Markdown: uma seção por memória, com a metadata."""
+    lines = ["# Memórias exportadas", ""]
+    for item in memories:
+        lines.append(f"## {item.metadata.topic}")
+        lines.append("")
+        lines.append(f"- data: {item.metadata.date.isoformat()}")
+        lines.append(f"- fonte: {item.metadata.source}")
+        lines.append(f"- sessão: {item.metadata.session_id}")
+        lines.append("")
+        lines.append(item.text)
+        lines.append("")
+    return "\n".join(lines)
+
+
+@router.get("/memories/export")
+async def export_memories(
+    topic: str | None = Query(default=None, max_length=120, description="Exporta só um tópico."),
+    session_id: str | None = Query(
+        default=None, max_length=200, description="Exporta só uma sessão."
+    ),
+    format: Literal["json", "markdown"] = Query(
+        default="json", description="Formato do arquivo exportado."
+    ),
+    memory: MemoryService = Depends(get_memory_service),
+    store: VectorStore = Depends(get_vector_store),
+) -> Response:
+    """Exporta TODAS as memórias (backup/portabilidade), paginando por cursor.
+
+    As memórias só existiam dentro do Qdrant: não havia como tirar uma cópia
+    antes de apagar um tópico/sessão, nem levar o histórico para outro lugar. O
+    export varre o store página a página (o mesmo cursor do `GET /api/memories`,
+    sem o teto de 100 por request) e devolve um arquivo pronto para guardar.
+
+    `format=json` (default) inclui a metadata e é reimportável; `format=markdown`
+    é o mesmo conteúdo legível, para leitura/diff. Filtros `topic`/`session_id`
+    exportam um recorte (ex.: só um tópico de estudo).
+
+    Qdrant fora → 503, nunca um arquivo vazio: um "backup" com 0 memória quando
+    o banco está indisponível faria o usuário concluir que não tinha nada a
+    salvar — e a próxima limpeza apagaria o que existia.
+    """
+    items: list[StoredMemory] = []
+    cursor: str | None = None
+    while True:
+        page, next_cursor = await memory.list(
+            topic=topic, limit=_EXPORT_PAGE_SIZE, session_id=session_id, cursor=cursor
+        )
+        items.extend(page)
+        # Cursor repetido = fim da coleção (guarda contra store que devolve o
+        # mesmo offset indefinidamente; sem isso o loop nunca terminaria).
+        if not next_cursor or next_cursor == cursor:
+            break
+        cursor = next_cursor
+
+    if not items and not await store.ping():
+        raise HTTPException(
+            status_code=503,
+            detail="armazenamento de memória indisponível: não é possível exportar",
+        )
+
+    if format == "markdown":
+        return Response(
+            content=_export_markdown(items),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="memorias.md"'},
+        )
+    return JSONResponse(
+        content=[item.model_dump(mode="json") for item in items],
+        headers={"Content-Disposition": 'attachment; filename="memorias.json"'},
+    )
 
 
 @router.get("/topics", response_model=list[str])

@@ -1159,3 +1159,147 @@ def test_chat_stream_timeout_emits_error_event() -> None:
         assert "não respondeu a tempo" in events[-1]["detail"]
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Export de memórias (GET /api/memories/export) ---
+
+
+def _stored(memory_id: str, text: str, topic: str = "fastapi") -> StoredMemory:
+    """Memória persistida de exemplo para os testes do export."""
+    return StoredMemory(
+        id=memory_id,
+        text=text,
+        metadata=MemoryMetadata(
+            topic=topic, source="livro", date=date(2026, 8, 25), session_id="s1"
+        ),
+    )
+
+
+def _store_mock(available: bool = True) -> AsyncMock:
+    """VectorStore falso: só o `ping` importa para o desfecho do export."""
+    store = AsyncMock()
+    store.ping.return_value = available
+    return store
+
+
+def test_export_memories_json_paginates_and_sets_attachment() -> None:
+    """Export varre todas as páginas por cursor e devolve um anexo JSON reimportável."""
+    memory = AsyncMock()
+    memory.list.side_effect = [
+        ([_stored("a", "primeira")], "cursor-2"),
+        ([_stored("b", "segunda")], None),
+    ]
+    store = _store_mock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/export")
+        assert resp.status_code == 200, resp.text
+        assert 'attachment; filename="memorias.json"' == resp.headers["content-disposition"]
+        body = resp.json()
+        assert [item["id"] for item in body] == ["a", "b"]
+        assert body[0]["metadata"]["topic"] == "fastapi"
+
+        # Duas páginas: a segunda foi pedida com o cursor devolvido pela primeira.
+        assert [call.kwargs["cursor"] for call in memory.list.await_args_list] == [None, "cursor-2"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_export_memories_markdown_is_readable() -> None:
+    """`format=markdown` gera o texto legível com a metadata de cada memória."""
+    memory = AsyncMock()
+    memory.list.return_value = ([_stored("a", "conteúdo da memória")], None)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: _store_mock()
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/export", params={"format": "markdown"})
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("text/markdown")
+        assert "## fastapi" in resp.text
+        assert "- fonte: livro" in resp.text
+        assert "conteúdo da memória" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_export_memories_forwards_filters() -> None:
+    """`topic`/`session_id` do export chegam ao serviço (recorte do backup)."""
+    memory = AsyncMock()
+    memory.list.return_value = ([], None)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: _store_mock()
+    try:
+        client = TestClient(app)
+        resp = client.get(
+            "/api/memories/export", params={"topic": "react", "session_id": "s9"}
+        )
+        assert resp.status_code == 200, resp.text
+        kwargs = memory.list.await_args_list[0].kwargs
+        assert kwargs["topic"] == "react"
+        assert kwargs["session_id"] == "s9"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_export_memories_503_when_storage_is_down() -> None:
+    """Qdrant fora → 503; nunca um arquivo vazio que pareça "não havia nada"."""
+    memory = AsyncMock()
+    memory.list.return_value = ([], None)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: _store_mock(available=False)
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/export")
+        assert resp.status_code == 503, resp.text
+        assert "indisponível" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_export_memories_empty_but_healthy_returns_empty_list() -> None:
+    """Sem memórias e com storage respondendo, o export é um [] legítimo."""
+    memory = AsyncMock()
+    memory.list.return_value = ([], None)
+    store = _store_mock(available=True)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/export")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == []
+        store.ping.assert_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_export_memories_stops_when_cursor_repeats() -> None:
+    """Cursor que se repete encerra o loop (sem isso o export nunca terminaria)."""
+    memory = AsyncMock()
+    memory.list.return_value = ([_stored("a", "x")], "mesmo-cursor")
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: _store_mock()
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/export")
+        assert resp.status_code == 200, resp.text
+        assert len(memory.list.await_args_list) == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_export_memories_rejects_unknown_format() -> None:
+    """`format` é Literal: valor desconhecido é 422, não um arquivo no formato errado."""
+    memory = AsyncMock()
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: _store_mock()
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/export", params={"format": "csv"})
+        assert resp.status_code == 422
+        memory.list.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
