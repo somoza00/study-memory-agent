@@ -60,15 +60,30 @@ async def test_store_truncates_very_long_text_before_embedding() -> None:
 
 
 async def test_recall_clamps_limit_and_min_score() -> None:
-    """A camada de serviço reclama limit/min_score fora da faixa."""
+    """A camada de serviço reclama limit/min_score fora da faixa.
+
+    O teto do `limit` é o mesmo do endpoint público (`le=50`): acima disso vira
+    50. Um teto menor aqui truncava em silêncio o `?limit=50` da busca HTTP.
+    """
     service, _embeddings, store = make_service()
     store.search.return_value = []
 
     await service.recall("q", limit=500, min_score=-2.0)
 
     _vector, limit, min_score, _topic = store.search.await_args.args
-    assert limit == 20
+    assert limit == 50
     assert min_score == 0.0
+
+
+async def test_recall_keeps_limit_asked_by_the_http_search() -> None:
+    """`limit` dentro da faixa do endpoint chega ao Qdrant como pedido (sem teto escondido)."""
+    service, _embeddings, store = make_service()
+    store.search.return_value = []
+
+    await service.recall("q", limit=30, min_score=0.5)
+
+    _vector, limit, _min_score, _topic = store.search.await_args.args
+    assert limit == 30
 
 
 async def test_metadata_rejects_oversized_topic() -> None:
