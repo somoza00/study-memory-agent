@@ -185,6 +185,15 @@ class MemoryService:
                 status = RenameTopicStatus.RENAMED if count else RenameTopicStatus.NOT_FOUND
                 return RenameTopicResult(status=status, updated=count)
             if await self._store.count_by_topic(name):
+                # Antes de acusar o destino ocupado, confirma que existe ORIGEM
+                # para renomear: renomear um tópico inexistente devolvia 409
+                # ("já existe um tópico chamado '<name>'") e escondia o problema
+                # real — não há o que renomear. O contrato do router (404 origem
+                # inexistente, 409 destino ocupado) só vale nesta ordem. A
+                # checagem só acontece no caminho de conflito, onde já houve um
+                # round trip ao store, então o caminho feliz não paga por ela.
+                if not await self._store.count_by_topic(topic):
+                    return RenameTopicResult(status=RenameTopicStatus.NOT_FOUND)
                 return RenameTopicResult(status=RenameTopicStatus.CONFLICT)
             updated = await self._store.rename_topic(topic, name)
         except Exception:
