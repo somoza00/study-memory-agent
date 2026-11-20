@@ -448,6 +448,26 @@ async def test_rename_topic_conflicts_with_existing_topic() -> None:
     store.rename_topic.assert_not_awaited()
 
 
+async def test_rename_topic_missing_source_wins_over_conflict() -> None:
+    """Origem inexistente vira NOT_FOUND, mesmo quando o nome desejado já existe.
+
+    Antes o teste de conflito vinha primeiro: renomear um tópico que não existe
+    para um nome já usado respondia 409 ("já existe um tópico chamado X") e
+    mandava o cliente investigar o tópico errado — não havia o que renomear. O
+    contrato do router (404 origem inexistente, 409 destino ocupado) só vale
+    com esta ordem.
+    """
+
+    service, _embeddings, store = make_service()
+    # destino existe ("react" com 2 memórias); origem não existe (0)
+    store.count_by_topic.side_effect = lambda topic: 2 if topic == "react" else 0
+
+    result = await service.rename_topic("inexistente", "react")
+
+    assert result.status is RenameTopicStatus.NOT_FOUND
+    store.rename_topic.assert_not_awaited()
+
+
 async def test_rename_topic_not_found_when_source_missing() -> None:
     service, _embeddings, store = make_service()
     store.count_by_topic.return_value = 0
