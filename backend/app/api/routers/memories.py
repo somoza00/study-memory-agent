@@ -101,6 +101,12 @@ async def list_memories(
     Paginação por CURSOR opaco (não offset inteiro): o `scroll` do Qdrant pagina
     por cursor, não por "pular N". Quando há mais páginas, o próximo cursor vem no
     header `X-Next-Cursor`, a passar de volta em `?cursor=`. Cursor malformado → 422.
+
+    Qdrant fora → 503, nunca uma lista vazia: `MemoryService.list`/`count`
+    degradam para `([], None)`, e um `200 []` sem `X-Total-Count` é idêntico a
+    "você não tem memórias" — o cliente/UI conclui que o histórico foi perdido
+    quando na verdade o banco vetorial só não respondeu. É o mesmo contrato do
+    `GET /api/memories/{id}` (404 só quando dá para verificar) e do export.
     """
     if cursor is not None:
         try:
@@ -111,11 +117,15 @@ async def list_memories(
         topic=topic, limit=limit, session_id=session_id, cursor=cursor, source=source
     )
     total = await memory.count(topic=topic, session_id=session_id, source=source)
+    if total is None:
+        raise HTTPException(
+            status_code=503,
+            detail="armazenamento de memória indisponível: não é possível listar as memórias",
+        )
     headers: dict[str, str] = {}
     if next_cursor:
         headers["X-Next-Cursor"] = next_cursor
-    if total is not None:
-        headers["X-Total-Count"] = str(total)
+    headers["X-Total-Count"] = str(total)
     return JSONResponse(
         content=[item.model_dump(mode="json") for item in items], headers=headers or None
     )
