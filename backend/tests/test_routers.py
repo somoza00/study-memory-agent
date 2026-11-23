@@ -1053,15 +1053,21 @@ def test_list_memories_exposes_total_count_header() -> None:
         app.dependency_overrides.clear()
 
 
-def test_list_memories_omits_total_when_storage_unavailable() -> None:
-    """Qdrant fora (count=None) ⇒ sem X-Total-Count (não mente um total)."""
+def test_list_memories_returns_503_when_storage_unavailable() -> None:
+    """Qdrant fora (count=None) ⇒ 503, não 200 sem X-Total-Count.
+
+    Antes a rota devolvia `200 []` sem o header: o cliente não tinha como
+    distinguir "você não tem memórias" de "o banco vetorial não respondeu" — e
+    concluía que o histórico tinha sumido. O GET por id e o export já devolviam
+    503 no mesmo cenário; a listagem passou a seguir o mesmo contrato.
+    """
     memory = _memory_mock()
     memory.count.return_value = None
     app.dependency_overrides[get_memory_service] = lambda: memory
     try:
         client = TestClient(app)
         resp = client.get("/api/memories")
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 503, resp.text
         assert resp.headers.get("x-total-count") is None
     finally:
         app.dependency_overrides.clear()
@@ -1301,5 +1307,20 @@ def test_export_memories_rejects_unknown_format() -> None:
         resp = client.get("/api/memories/export", params={"format": "csv"})
         assert resp.status_code == 422
         memory.list.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+def test_list_memories_with_zero_results_stays_200() -> None:
+    """Zero memórias de verdade (count=0, não None) continua 200 com total 0."""
+    memory = _memory_mock()
+    memory.list.return_value = ([], None)
+    memory.count.return_value = 0
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == []
+        assert resp.headers["x-total-count"] == "0"
     finally:
         app.dependency_overrides.clear()
