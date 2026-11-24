@@ -372,7 +372,18 @@ async def update_memory(
             status_code=503,
             detail="armazenamento indisponível: não foi possível atualizar a memória",
         )
-    assert result.memory is not None
+    if result.memory is None:
+        # `UPDATED` sem memória é inconsistência entre service e router: o
+        # `assert` que existia aqui virava `AssertionError` cru (500 com
+        # traceback, fora dos 502/503 do contrato) e desaparecia com
+        # `python -O` — aí o `response_model` estourava com outro 500. 502
+        # estruturado mantém a regra do AGENTS.md (nunca 500 cru) e deixa claro
+        # que a falha é do servidor, não do request do cliente.
+        logger.error("PATCH /api/memories: update devolveu UPDATED sem memória")
+        raise HTTPException(
+            status_code=502,
+            detail="erro interno: a memória não foi devolvida após a atualização",
+        )
     return result.memory
 
 

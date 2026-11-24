@@ -924,6 +924,27 @@ def test_update_memory_502_when_embedding_fails() -> None:
         app.dependency_overrides.clear()
 
 
+def test_update_memory_502_when_service_returns_updated_without_memory() -> None:
+    """`UPDATED` sem memória vira 502 estruturado, não AssertionError cru (500).
+
+    O router tinha um `assert result.memory is not None`: um estado inconsistente
+    do service saía como 500 com traceback (fora dos 502/503 do contrato) e, com
+    `python -O`, o `assert` sumia e o `response_model` estourava com outro 500.
+    """
+    from app.services.memory_service import UpdateMemoryResult, UpdateMemoryStatus
+
+    memory = _memory_mock()
+    memory.update.return_value = UpdateMemoryResult(status=UpdateMemoryStatus.UPDATED)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    try:
+        client = TestClient(app)
+        resp = client.patch(f"/api/memories/{_MEMORY_ID}", json={"text": "novo"})
+        assert resp.status_code == 502, resp.text
+        assert "não foi devolvida" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_update_memory_rejects_blank_text() -> None:
     """Texto só com espaços é rejeitado (422) antes de tocar o serviço."""
     memory = _memory_mock()
