@@ -1318,6 +1318,35 @@ def test_export_memories_stops_when_cursor_repeats() -> None:
         app.dependency_overrides.clear()
 
 
+def test_export_memories_503_when_storage_fails_mid_scan() -> None:
+    """Qdrant cai NO MEIO da varredura → 503, nunca um backup PARCIAL com 200.
+
+    `MemoryService.list` engole a exceção do Qdrant e devolve `([], None)` — que
+    é indistinguível de "fim da coleção". Sem esta checagem, o export parava na
+    página onde o store falhou e devolvia 200 com o que já tinha coletado: o
+    usuário salvava um arquivo truncado acreditando ter tudo, apagava o
+    tópico/sessão e só descobria a perda depois (o backup não serve de backup).
+    """
+    memory = AsyncMock()
+    memory.list.side_effect = [
+        ([_stored("a", "primeira")], "cursor-2"),
+        ([], None),  # falha do Qdrant a partir daqui: list degrada para ([], None)
+    ]
+    store = _store_mock(available=False)
+    app.dependency_overrides[get_memory_service] = lambda: memory
+    app.dependency_overrides[get_vector_store] = lambda: store
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/memories/export")
+        assert resp.status_code == 503, resp.text
+        assert "durante o export" in resp.json()["detail"]
+        # O arquivo parcial NÃO é entregue: melhor um 503 explícito que um
+        # "backup" incompleto com cara de completo.
+        assert "content-disposition" not in resp.headers
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_export_memories_rejects_unknown_format() -> None:
     """`format` é Literal: valor desconhecido é 422, não um arquivo no formato errado."""
     memory = AsyncMock()

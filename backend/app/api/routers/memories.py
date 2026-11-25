@@ -210,7 +210,9 @@ async def export_memories(
 
     Qdrant fora → 503, nunca um arquivo vazio: um "backup" com 0 memória quando
     o banco está indisponível faria o usuário concluir que não tinha nada a
-    salvar — e a próxima limpeza apagaria o que existia.
+    salvar — e a próxima limpeza apagaria o que existia. Pelo mesmo motivo, uma
+    falha NO MEIO da varredura também vira 503 em vez de um arquivo parcial (ver
+    o check de página vazia no loop abaixo).
     """
     items: list[StoredMemory] = []
     cursor: str | None = None
@@ -218,6 +220,22 @@ async def export_memories(
         page, next_cursor = await memory.list(
             topic=topic, limit=_EXPORT_PAGE_SIZE, session_id=session_id, cursor=cursor
         )
+        if not page and cursor is not None:
+            # Página vazia NO MEIO da varredura = a listagem falhou, não o fim
+            # da coleção: o `scroll` do Qdrant devolve o último lote JUNTO com
+            # `next_page_offset=None` (o fim natural nunca é uma página vazia) e
+            # `MemoryService.list` engole a exceção devolvendo `([], None)` —
+            # indistinguível de "acabou". Sem este check o export respondia 200
+            # com o que já havia coletado: um arquivo PARCIAL com cara de
+            # completo, que o usuário levaria como backup antes de apagar o
+            # tópico/sessão — e o dano só apareceria na hora de restaurar.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "armazenamento de memória ficou indisponível durante o export: "
+                    "nenhum arquivo parcial é gerado (tente novamente)"
+                ),
+            )
         items.extend(page)
         # Cursor repetido = fim da coleção (guarda contra store que devolve o
         # mesmo offset indefinidamente; sem isso o loop nunca terminaria).
