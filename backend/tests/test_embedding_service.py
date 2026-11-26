@@ -159,3 +159,36 @@ def test_rejects_non_positive_embedding_timeout() -> None:
         Settings(openai_api_key="x", embedding_timeout_seconds=0)
     with pytest.raises(ValidationError):
         Settings(openai_api_key="x", embedding_timeout_seconds=-1)
+
+
+class _EmptyLocalModel:
+    """Embedder local que devolve LISTA VAZIA (não um vetor vazio)."""
+
+    def embed(self, documents: Iterable[str]) -> Iterable[Sequence[float]]:
+        list(documents)  # consome o iterável, como o fastembed faria
+        return []
+
+
+def _remote_client_sem_data() -> AsyncMock:
+    """Cliente remoto cujo 200 traz `data: []` (nenhum vetor)."""
+    client = AsyncMock()
+    client.embeddings.create.return_value = SimpleNamespace(data=[])
+    return client
+
+
+async def test_remote_empty_data_raises_clear_error() -> None:
+    """`data: []` num 200 não pode subir IndexError: falha legível, com a env."""
+    cfg = Settings(openai_api_key="x", embedding_dim=1536)
+    service = EmbeddingService(client=_remote_client_sem_data(), config=cfg)
+
+    with pytest.raises(ValueError, match="sem nenhum vetor"):
+        await service.embed("texto")
+
+
+async def test_local_empty_vectors_raises_clear_error() -> None:
+    """Embedder local sem vetor nenhum: mesma guarda, apontando a env local."""
+    cfg = Settings(embedding_provider="local", embedding_dim=8)
+    service = EmbeddingService(config=cfg, local_model=_EmptyLocalModel())
+
+    with pytest.raises(ValueError, match="sem nenhum vetor"):
+        await service.embed("texto")
