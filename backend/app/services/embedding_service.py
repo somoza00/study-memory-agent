@@ -107,11 +107,30 @@ class EmbeddingService:
     async def _embed_remote(self, text: str) -> list[float]:
         """Embedding via endpoint OpenAI-compatível."""
         response = await self._get_client().embeddings.create(input=text, model=self._model)
+        # `data` vazio NÃO é um caso hipotético: proxy/gateway no meio do caminho
+        # responde 200 com `data: []` (input vazio depois do strip, provedor que
+        # aceita o request e devolve nada). Indexar direto subia IndexError
+        # ("list index out of range"), que o router converte em 502 genérico —
+        # sem dizer de qual provedor/modelo se trata. Falha explícita e legível,
+        # como o `_check_dim` faz com EMBEDDING_DIM.
+        if not response.data:
+            raise ValueError(
+                "o provedor de embeddings respondeu sem nenhum vetor (data vazio) — "
+                "verifique EMBEDDING_BASE_URL/EMBEDDING_MODEL"
+            )
         return [float(value) for value in response.data[0].embedding]
 
     def _embed_local(self, text: str) -> list[float]:
         """Embedding local (roda em thread: ONNX é CPU-bound e bloquearia o loop)."""
         vectors = list(self._get_local_model().embed([text]))
+        # Mesmo caso do provedor remoto: uma lista vazia de vetores virava
+        # IndexError dentro da thread, com o traceback do fastembed no log e um
+        # 502 sem causa clara para quem chamou.
+        if not vectors:
+            raise ValueError(
+                "o embedder local respondeu sem nenhum vetor — "
+                "verifique LOCAL_EMBEDDING_MODEL"
+            )
         return [float(value) for value in vectors[0]]
 
     def _check_dim(self, vector: list[float]) -> list[float]:
