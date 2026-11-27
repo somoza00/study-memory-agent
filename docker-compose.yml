@@ -166,7 +166,18 @@ services:
       - path: .env
         required: false
     ports:
-      - "${BACKEND_PORT:-8001}:8000"
+      # 127.0.0.1: a API sobe SEM auth por default (`API_KEY=` vazio = auth
+      # desabilitada, de propósito, para dev) e cada chat gasta tokens reais do
+      # provedor. Publicada em 0.0.0.0 ela ficava alcançável por qualquer
+      # máquina da rede local (o host é um laptop que troca de WiFi): dava para
+      # ler, criar e APAGAR memórias e queimar crédito do provedor sem
+      # credencial nenhuma. As dependências deste mesmo compose (qdrant,
+      # langfuse) e os serviços dos stacks irmãos (evaluation-framework,
+      # myown-llm-gateway) já publicam só no loopback — faltava aqui.
+      # `http://localhost:8001` continua igual; o frontend fala com o backend
+      # por `backend:8000` na rede interna, então o publish só serve ao
+      # navegador/curl da própria máquina.
+      - "127.0.0.1:${BACKEND_PORT:-8001}:8000"
     volumes:
       - fastembed_cache:/app/.cache/fastembed
     networks: [sma]
@@ -195,7 +206,13 @@ services:
       - path: .env
         required: false
     ports:
-      - "${FRONTEND_PORT:-5174}:5173"
+      # 127.0.0.1 pelo mesmo motivo do backend: o dev server do Vite serve a UI
+      # e faz proxy de /api para `backend:8000` na rede interna, então o publish
+      # só interessa ao navegador desta máquina. Fora do loopback a UI ficava
+      # acessível a qualquer máquina da LAN — e, com a auth da API desligada
+      # (default de dev), ela administra a API inteira (chat com custo real,
+      # criar/apagar memórias). `http://localhost:5174` continua igual.
+      - "127.0.0.1:${FRONTEND_PORT:-5174}:5173"
     healthcheck:
       # O frontend não tinha healthcheck; usa o próprio node (fetch global,
       # sem depender de curl) na porta INTERNA 5173 (não ${FRONTEND_PORT}).
